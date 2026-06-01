@@ -1,0 +1,163 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function validHandle(handle) {
+      return handle is string
+        && handle.size() >= 3
+        && handle.size() <= 30
+        && handle.matches('^[A-Za-z0-9_ᄀ-ᇿ㄰-㆏가-힣぀-ヿㇰ-ㇿ㐀-䶿一-鿿]+$');
+    }
+
+    function validProfileHandle(handle) {
+      return handle == '' || validHandle(handle);
+    }
+
+    function validCalendarSettings(data) {
+      return (!data.keys().hasAny(['calendarReminderEnabled'])
+          || data.calendarReminderEnabled is bool)
+        && (!data.keys().hasAny(['calendarReminderLeadMinutes'])
+          || (data.calendarReminderLeadMinutes is int
+            && data.calendarReminderLeadMinutes >= 0
+            && data.calendarReminderLeadMinutes <= 1440))
+        && (!data.keys().hasAny(['morningBriefingEnabled'])
+          || data.morningBriefingEnabled is bool)
+        && (!data.keys().hasAny(['morningBriefingMinuteOfDay'])
+          || (data.morningBriefingMinuteOfDay is int
+            && data.morningBriefingMinuteOfDay >= 0
+            && data.morningBriefingMinuteOfDay <= 1439))
+        && (!data.keys().hasAny(['calendarTimezone'])
+          || (data.calendarTimezone is string
+            && data.calendarTimezone.size() > 0
+            && data.calendarTimezone.size() <= 64))
+        && (!data.keys().hasAny(['holidayCountryCode'])
+          || data.holidayCountryCode in ['none', 'KR', 'US', 'JP', 'CN']);
+    }
+
+    function room(roomId) {
+      return get(/databases/$(database)/documents/rooms/$(roomId));
+    }
+
+    function isRoomParticipant(roomId) {
+      return signedIn()
+        && room(roomId).data.participantIds is list
+        && request.auth.uid in room(roomId).data.participantIds;
+    }
+
+    function roomMember(roomId, uid) {
+      return get(/databases/$(database)/documents/rooms/$(roomId)/members/$(uid));
+    }
+
+    function isRoomManager(roomId) {
+      return isRoomParticipant(roomId)
+        && roomMember(roomId, request.auth.uid).data.role in ['owner', 'admin'];
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create, update: if isSelf(uid)
+        && request.resource.data.keys().hasOnly([
+          'displayName',
+          'handle',
+          'phoneHash',
+          'photoUrl',
+          'defaultSendMode',
+          'calendarReminderEnabled',
+          'calendarReminderLeadMinutes',
+          'morningBriefingEnabled',
+          'morningBriefingMinuteOfDay',
+          'calendarTimezone',
+          'holidayCountryCode',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.displayName is string
+        && request.resource.data.handle is string
+        && validProfileHandle(request.resource.data.handle)
+        && request.resource.data.defaultSendMode in ['confirm', 'instant']
+        && validCalendarSettings(request.resource.data);
+      allow delete: if false;
+
+      match /fcmTokens/{tokenId} {
+        allow read: if false;
+        allow create, update, delete: if isSelf(uid);
+      }
+
+      match /calendarEvents/{eventId} {
+        allow read: if isSelf(uid);
+        allow create, update, delete: if false;
+      }
+    }
+
+    match /handles/{handle} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && validHandle(handle)
+        && request.resource.data.keys().hasOnly(['uid', 'updatedAt']);
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && validHandle(handle)
+        && request.resource.data.keys().hasOnly(['uid', 'updatedAt']);
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    match /rooms/{roomId} {
+      allow read: if signedIn()
+        && request.auth.uid in resource.data.participantIds;
+      allow create, update, delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isRoomParticipant(roomId);
+        allow create, update, delete: if false;
+      }
+
+      match /calendarProposals/{proposalId} {
+        allow read: if isRoomParticipant(roomId);
+        allow create, update, delete: if false;
+
+        match /votes/{voteUid} {
+          allow read: if isRoomParticipant(roomId);
+          allow create, update, delete: if false;
+        }
+      }
+
+      match /members/{memberUid} {
+        allow read: if isRoomParticipant(roomId);
+        allow create, update, delete: if false;
+      }
+
+      match /joinRequests/{memberUid} {
+        allow read: if isRoomManager(roomId) || isSelf(memberUid);
+        allow create, update, delete: if false;
+      }
+
+      match /pins/{messageId} {
+        allow read: if isRoomParticipant(roomId);
+        allow create, update, delete: if false;
+      }
+    }
+
+    match /transcriptionDrafts/{draftId} {
+      allow read: if signedIn() && resource.data.ownerId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    match /reports/{reportId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

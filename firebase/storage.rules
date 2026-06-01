@@ -1,0 +1,50 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isRoomParticipant(roomId) {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/rooms/$(roomId))
+        && request.auth.uid in firestore.get(/databases/(default)/documents/rooms/$(roomId)).data.participantIds;
+    }
+
+    function isAudioUpload() {
+      return request.resource != null
+        && request.resource.contentType.matches('audio/.*');
+    }
+
+    function isAttachmentUpload() {
+      return request.resource != null
+        && request.resource.size < 50 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*|text/.*|application/pdf|application/zip|application/x-zip-compressed|application/json|application/octet-stream|application/msword|application/vnd.*|application/haansofthwp|application/x-hwp');
+    }
+
+    match /voice_drafts/{uid}/{fileName} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if signedIn() && request.auth.uid == uid && isAudioUpload();
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /voice_messages/{roomId}/{fileName} {
+      allow read: if isRoomParticipant(roomId);
+      allow write: if false;
+      allow delete: if false;
+    }
+
+    match /attachments/{roomId}/{uid}/{fileName} {
+      allow read: if isRoomParticipant(roomId);
+      allow write: if isRoomParticipant(roomId)
+        && request.auth.uid == uid
+        && isAttachmentUpload();
+      allow delete: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "203811587610",
+    "project_id": "voice-messenger-jangs-260522",
+    "storage_bucket": "voice-messenger-jangs-260522.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:203811587610:android:713b3d7faece49f920f3a3",
+        "android_client_info": {
+          "package_name": "com.voicebeta.voice_messenger"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDjkwqlejaw7fPfzcHJ3T4JCa6n1zY6-5o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

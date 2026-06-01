@@ -1,0 +1,31 @@
+# Flutter
+apps/mobile/.dart_tool/
+apps/mobile/.flutter-plugins
+apps/mobile/.flutter-plugins-dependencies
+apps/mobile/build/
+dist/
+artifacts/
+
+# Firebase Functions
+functions/lib/
+functions/node_modules/
+functions/.runtimeconfig.json
+
+# Firebase logs
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
+
+# Local secrets
+.env
+.env.*
+!.env.example
+apps/mobile/android/key.properties
+apps/mobile/android/app/upload-keystore.jks
+
+# OS and IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
