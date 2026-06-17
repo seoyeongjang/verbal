@@ -9,13 +9,13 @@
 
 ## 앱 정보
 
-- 앱 이름: Voice Messenger
+- 앱 이름: Verbal
 - 기본 언어: 한국어
 - 앱 유형: 앱
 - 카테고리: 커뮤니케이션
-- 패키지명: `com.voicebeta.voice_messenger`
+- 패키지명: `com.voicebeta.verbal`
 - Firebase 프로젝트: `voice-messenger-jangs-260522`
-- Android Firebase App ID: `1:203811587610:android:713b3d7faece49f920f3a3`
+- Android Firebase App ID: `1:203811587610:android:60b60d74b332290520f3a3`
 
 ## 스토어 등록정보 초안
 

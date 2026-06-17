@@ -10,9 +10,10 @@ attempt.
 
 ## STT Failure
 
-Voice messages can be sent after retrying STT or manually editing the transcript.
-Please share the approximate recording time, language, device, and whether the
-audio was sent in review mode or instant mode.
+Voice messages are sent automatically after STT succeeds. If STT fails, the app
+lets the user retry STT or manually enter a transcript before sending. Please
+share the approximate recording time, language, device, and the error text shown
+in the recovery sheet.
 
 ## Lost Account
 

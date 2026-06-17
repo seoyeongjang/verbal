@@ -47,5 +47,5 @@
 - Noisy environment Korean voice.
 - Short voice under 3 seconds.
 - Long voice recording and playback.
-- Confirm mode transcript edit before send.
-- Instant mode pending state and transcript update.
+- Automatic voice send after STT succeeds.
+- STT retry and manual transcript recovery.

@@ -4,17 +4,18 @@
 
 ## 완료된 작업
 
-- Google Cloud/Firebase 프로젝트 생성: `voice-messenger-jangs-260522`.
+- Google Cloud/Firebase 프로젝트 표시명: `Verbal`.
+- 변경 불가한 Google Cloud/Firebase 프로젝트 ID: `voice-messenger-jangs-260522`.
 - 로컬 ADC quota project를 `voice-messenger-jangs-260522`로 설정.
 - Firebase 프로젝트 활성화.
 - Firestore 기본 데이터베이스 생성: `asia-northeast3`.
 - Firestore rules와 indexes 배포.
 - Firebase Android 앱 등록:
-  - Package: `com.voicebeta.voice_messenger`
-  - App ID: `1:203811587610:android:713b3d7faece49f920f3a3`
+  - Package: `com.voicebeta.verbal`
+  - App ID: `1:203811587610:android:60b60d74b332290520f3a3`
 - Firebase iOS 앱 등록:
-  - Bundle ID: `com.voicebeta.voiceMessenger`
-  - App ID: `1:203811587610:ios:25d3ef7152d835c720f3a3`
+  - Bundle ID: `com.voicebeta.verbal`
+  - App ID: `1:203811587610:ios:e953a69e5930e77720f3a3`
 - Firebase 앱 설정 파일 다운로드:
   - `apps/mobile/android/app/google-services.json`
   - `apps/mobile/ios/Runner/GoogleService-Info.plist`
@@ -70,10 +71,10 @@
   - 현재 지출 50%, 80%, 100% 알림
   - 예측 지출 100% 알림
 - 로그 메트릭과 알림 정책 설정:
-  - `voice_messenger_function_errors`
-  - `voice_messenger_deepgram_errors`
-  - `Voice Messenger Function Errors`
-  - `Voice Messenger Deepgram Errors`
+  - `verbal_function_errors`
+  - `verbal_deepgram_errors`
+  - `Verbal Function Errors`
+  - `Verbal Deepgram Errors`
 - 프로덕션 검증 스크립트 추가:
   - `scripts/configure-auth-test-phone.ps1`
   - `scripts/configure-budget-alerts.ps1`
@@ -110,8 +111,8 @@
   - 텍스트 전송
   - 음성 업로드
   - Deepgram transcript 생성
-  - 확인 후 전송
-  - 즉시 전송
+  - STT 완료 후 자동 음성 전송
+  - STT 실패 복구
   - 첨부/위치/예약 전송
   - 번역
   - 초대 링크/QR
@@ -142,7 +143,7 @@ cd C:\Users\jangs\OneDrive\바탕 화면\vibe_code\voice_messanger
 - Android 에뮬레이터 마이크 흐름 확인:
   - 마이크 권한 팝업 표시
   - 권한 허용 후 녹음 중 상태 표시
-  - 녹음 중지 후 확인 후 전송 시트 표시
+  - 녹음 중지 후 STT 처리 및 자동 전송 경로
   - 증거 파일: `artifacts/mic-permission-check.png`,
     `artifacts/mic-recording-active.png`, `artifacts/after-record-stop.png`
 
@@ -160,8 +161,8 @@ cd C:\Users\jangs\OneDrive\바탕 화면\vibe_code\voice_messanger
   - 양방향 텍스트 메시지 전송
   - 음성 draft 업로드
   - Deepgram transcript 생성
-  - review-send 음성 메시지
-  - 서버가 draft를 메시지 경로로 복사하는 instant-send 음성 메시지
+  - 자동 음성 전송 메시지
+  - 서버가 draft를 메시지 경로로 복사하는 즉시 백엔드 전송 메시지
   - FCM 만료 토큰 정리
   - 증거 파일: `artifacts/production-e2e-smoke-20260528180740.json`
 - 실제 SMS 수신, 실제 마이크 녹음 품질, 실제 FCM 수신은 Android 실기기에서

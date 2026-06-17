@@ -23,20 +23,37 @@ enum MessengerThemeChoice {
   final ThemeMode themeMode;
 }
 
+enum MessengerFontSizeChoice {
+  extraSmall('더 작게', 0.86),
+  small('작게', 0.93),
+  normal('보통', 1),
+  large('크게', 1.08),
+  extraLarge('더 크게', 1.16);
+
+  const MessengerFontSizeChoice(this.label, this.scale);
+
+  final String label;
+  final double scale;
+}
+
 class AppPreferenceScope extends InheritedWidget {
   const AppPreferenceScope({
     required this.language,
     required this.themeChoice,
+    required this.fontSizeChoice,
     required this.setLanguage,
     required this.setThemeChoice,
+    required this.setFontSizeChoice,
     required super.child,
     super.key,
   });
 
   final AppLanguage language;
   final MessengerThemeChoice themeChoice;
+  final MessengerFontSizeChoice fontSizeChoice;
   final ValueChanged<AppLanguage> setLanguage;
   final ValueChanged<MessengerThemeChoice> setThemeChoice;
+  final ValueChanged<MessengerFontSizeChoice> setFontSizeChoice;
 
   static AppPreferenceScope of(BuildContext context) {
     final scope = context
@@ -48,6 +65,7 @@ class AppPreferenceScope extends InheritedWidget {
   @override
   bool updateShouldNotify(AppPreferenceScope oldWidget) {
     return language != oldWidget.language ||
-        themeChoice != oldWidget.themeChoice;
+        themeChoice != oldWidget.themeChoice ||
+        fontSizeChoice != oldWidget.fontSizeChoice;
   }
 }

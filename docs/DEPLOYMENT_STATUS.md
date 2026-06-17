@@ -4,7 +4,8 @@ Korean translation: `docs/ko/DEPLOYMENT_STATUS.md`
 
 ## Completed
 
-- Created Google Cloud/Firebase project: `voice-messenger-jangs-260522`.
+- Google Cloud/Firebase project display name: `Verbal`.
+- Immutable Google Cloud/Firebase project ID: `voice-messenger-jangs-260522`.
 - Set local ADC quota project to `voice-messenger-jangs-260522`.
 - Enabled Firebase project.
 - Enabled no-billing Firebase APIs that are available now:
@@ -19,11 +20,11 @@ Korean translation: `docs/ko/DEPLOYMENT_STATUS.md`
 - Created Firestore default database in `asia-northeast3`.
 - Deployed Firestore rules and indexes.
 - Registered Firebase Android app:
-  - Package: `com.voicebeta.voice_messenger`
-  - App ID: `1:203811587610:android:713b3d7faece49f920f3a3`
+  - Package: `com.voicebeta.verbal`
+  - App ID: `1:203811587610:android:60b60d74b332290520f3a3`
 - Registered Firebase iOS app:
-  - Bundle ID: `com.voicebeta.voiceMessenger`
-  - App ID: `1:203811587610:ios:25d3ef7152d835c720f3a3`
+  - Bundle ID: `com.voicebeta.verbal`
+  - App ID: `1:203811587610:ios:e953a69e5930e77720f3a3`
 - Downloaded Firebase app config files:
   - `apps/mobile/android/app/google-services.json`
   - `apps/mobile/ios/Runner/GoogleService-Info.plist`
@@ -91,10 +92,10 @@ Korean translation: `docs/ko/DEPLOYMENT_STATUS.md`
   - 50%, 80%, 100% current-spend thresholds
   - 100% forecasted-spend threshold
 - Configured logging metrics and alert policies:
-  - `voice_messenger_function_errors`
-  - `voice_messenger_deepgram_errors`
-  - `Voice Messenger Function Errors`
-  - `Voice Messenger Deepgram Errors`
+  - `verbal_function_errors`
+  - `verbal_deepgram_errors`
+  - `Verbal Function Errors`
+  - `Verbal Deepgram Errors`
 - Added production verification scripts:
   - `scripts/configure-auth-test-phone.ps1`
   - `scripts/configure-budget-alerts.ps1`

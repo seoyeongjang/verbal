@@ -38,6 +38,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Timer? _timer;
   var _recording = false;
   var _busy = false;
+  var _freeSttActive = false;
+  var _liveTranscript = '';
 
   @override
   void initState() {
@@ -316,16 +318,25 @@ class _CalendarScreenState extends State<CalendarScreen> {
       if (!permitted) {
         throw StateError('마이크 권한이 필요합니다.');
       }
+      _freeSttActive = false;
+      _liveTranscript = '';
       if (BrowserSpeechRecognizer.enabled) {
-        await _speechRecognizer.start();
+        try {
+          await _speechRecognizer.start(
+            onTranscript: (transcript) {
+              _liveTranscript = transcript;
+            },
+          );
+          _freeSttActive = true;
+        } catch (_) {
+          _freeSttActive = false;
+          await _speechRecognizer.cancel();
+        }
       }
       final encoder = await _preferredEncoder();
       final path = await _recordingPath(encoder);
       try {
-        await _recorder.start(
-          RecordConfig(encoder: encoder, bitRate: 64000, sampleRate: 16000),
-          path: path,
-        );
+        await _recorder.start(_voiceRecordConfig(encoder), path: path);
       } catch (_) {
         await _speechRecognizer.cancel();
         rethrow;
@@ -347,14 +358,20 @@ class _CalendarScreenState extends State<CalendarScreen> {
       return;
     }
     final path = await _recorder.stop();
-    final transcriptOverride = BrowserSpeechRecognizer.enabled
+    final transcriptOverride = _freeSttActive
         ? await _speechRecognizer.stop()
         : null;
     _timer?.cancel();
     _timer = null;
     _stopwatch.stop();
     final durationMs = _stopwatch.elapsedMilliseconds;
-    setState(() => _recording = false);
+    final liveTranscript = transcriptOverride?.trim().isNotEmpty == true
+        ? transcriptOverride
+        : _liveTranscript.trim();
+    setState(() {
+      _recording = false;
+      _freeSttActive = false;
+    });
     if (path == null || durationMs < 500) {
       _showError('녹음 시간이 너무 짧습니다.');
       return;
@@ -362,7 +379,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
     await _run(() async {
       final backend = BackendScope.of(context);
-      var manualTranscript = transcriptOverride?.trim();
+      var manualTranscript = liveTranscript?.trim();
       if (BrowserSpeechRecognizer.enabled &&
           (manualTranscript == null || manualTranscript.isEmpty)) {
         manualTranscript = await _showManualTranscriptSheet();
@@ -382,8 +399,53 @@ class _CalendarScreenState extends State<CalendarScreen> {
       if (!mounted) {
         return;
       }
-      await _showEventSheet(draft: draft);
+      await _createVoiceEventFromDraft(draft);
     });
+  }
+
+  Future<void> _createVoiceEventFromDraft(CalendarIntentDraft draft) async {
+    final title = draft.parsedTitle?.trim();
+    final startAt = draft.startAt;
+    final endAt = draft.endAt;
+    if (!draft.isComplete ||
+        title == null ||
+        startAt == null ||
+        endAt == null) {
+      final message = '일정 제목, 날짜, 시간을 모두 인식하지 못했습니다. 다시 말해 주세요.';
+      unawaited(BriefingSpeaker.speak(message));
+      _showError(message);
+      return;
+    }
+
+    final event = await BackendScope.of(context).createCalendarEvent(
+      title: title,
+      startAt: startAt,
+      endAt: endAt,
+      timezone: draft.timezone,
+      source: 'voice',
+      transcript: draft.transcript,
+    );
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _visibleMonth = DateTime(event.startAt.year, event.startAt.month);
+      _selectedDay = DateTime(
+        event.startAt.year,
+        event.startAt.month,
+        event.startAt.day,
+      );
+    });
+
+    final message = _eventAddedSpeechMessage(event);
+    await BriefingSpeaker.speak(message);
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
   }
 
   Future<CalendarIntentDraft?> _createCalendarDraftWithRecovery({
@@ -414,6 +476,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
   }
 
+  String _eventAddedSpeechMessage(CalendarEvent event) {
+    final start = event.startAt;
+    final period = start.hour < 12 ? '오전' : '오후';
+    final hour = start.hour % 12 == 0 ? 12 : start.hour % 12;
+    final minute = start.minute == 0 ? '' : ' ${start.minute}분';
+    return '${start.month}월 ${start.day}일 $period $hour시$minute에 ${event.title} 일정이 추가되었습니다.';
+  }
+
   bool _isRecoverableCalendarSttError(Object error) {
     final message = error.toString();
     return message.contains('STT 엔진') ||
@@ -429,13 +499,25 @@ class _CalendarScreenState extends State<CalendarScreen> {
         ? const [AudioEncoder.opus, AudioEncoder.wav]
         : defaultTargetPlatform == TargetPlatform.windows
         ? const [AudioEncoder.wav]
-        : const [AudioEncoder.aacLc, AudioEncoder.wav];
+        : const [AudioEncoder.wav, AudioEncoder.aacLc];
     for (final candidate in candidates) {
       if (await _recorder.isEncoderSupported(candidate)) {
         return candidate;
       }
     }
     return AudioEncoder.wav;
+  }
+
+  RecordConfig _voiceRecordConfig(AudioEncoder encoder) {
+    return RecordConfig(
+      encoder: encoder,
+      bitRate: 64000,
+      sampleRate: 16000,
+      numChannels: 1,
+      androidConfig: const AndroidRecordConfig(
+        audioSource: AndroidAudioSource.mic,
+      ),
+    );
   }
 
   Future<String> _recordingPath(AudioEncoder encoder) async {
@@ -1079,33 +1161,45 @@ class _MonthDayCell extends StatelessWidget {
                     ),
                 ],
               ),
-              const SizedBox(height: 3),
-              for (final holiday in visibleHolidays) ...[
-                _HolidayChip(holiday: holiday),
-                if (visibleEvents.isNotEmpty) const SizedBox(height: 2),
-              ],
-              for (var index = 0; index < visibleEvents.length; index++) ...[
-                _CalendarChip(
-                  event: visibleEvents[index],
-                  color: _chipColor(index),
-                  onTap: () => onOpenEvent(visibleEvents[index]),
+              Expanded(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    const SizedBox(height: 3),
+                    for (final holiday in visibleHolidays) ...[
+                      _HolidayChip(holiday: holiday),
+                      if (visibleEvents.isNotEmpty) const SizedBox(height: 2),
+                    ],
+                    for (
+                      var index = 0;
+                      index < visibleEvents.length;
+                      index++
+                    ) ...[
+                      _CalendarChip(
+                        event: visibleEvents[index],
+                        color: _chipColor(index),
+                        onTap: () => onOpenEvent(visibleEvents[index]),
+                      ),
+                      if (index != visibleEvents.length - 1)
+                        const SizedBox(height: 2),
+                    ],
+                    if (moreCount > 0) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        '+$moreCount',
+                        maxLines: 1,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: _kDarkGreen,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-                if (index != visibleEvents.length - 1)
-                  const SizedBox(height: 2),
-              ],
-              if (moreCount > 0) ...[
-                const SizedBox(height: 2),
-                Text(
-                  '+$moreCount',
-                  maxLines: 1,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: _kDarkGreen,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ],
+              ),
             ],
           ),
         ),
@@ -1915,11 +2009,13 @@ class CalendarEventSheet extends StatefulWidget {
 }
 
 class _CalendarEventSheetState extends State<CalendarEventSheet> {
+  static const _defaultDurationMinutes = 60;
+
   late final TextEditingController _titleController;
   late final TextEditingController _detailsController;
   late final TextEditingController _dateController;
   late final TextEditingController _timeController;
-  late final TextEditingController _durationController;
+  late final int _durationMinutes;
   var _saving = false;
   String? _error;
 
@@ -1933,6 +2029,15 @@ class _CalendarEventSheetState extends State<CalendarEventSheet> {
     final initialDate = widget.initialDate;
     final startAt = event?.startAt ?? draft?.startAt;
     final dateSeed = startAt ?? initialDate;
+    final draftDuration = draft?.startAt != null && draft?.endAt != null
+        ? draft!.endAt!
+              .difference(draft.startAt!)
+              .inMinutes
+              .clamp(1, 24 * 60)
+              .toInt()
+        : null;
+    _durationMinutes =
+        event?.durationMinutes ?? draftDuration ?? _defaultDurationMinutes;
     _titleController = TextEditingController(
       text: event?.title ?? draft?.parsedTitle ?? '',
     );
@@ -1943,15 +2048,11 @@ class _CalendarEventSheetState extends State<CalendarEventSheet> {
     _timeController = TextEditingController(
       text: startAt == null ? '' : DateFormat('HH:mm').format(startAt),
     );
-    _durationController = TextEditingController(
-      text: '${event?.durationMinutes ?? 60}',
-    );
     for (final controller in [
       _titleController,
       _detailsController,
       _dateController,
       _timeController,
-      _durationController,
     ]) {
       controller.addListener(() => setState(() => _error = null));
     }
@@ -1963,7 +2064,6 @@ class _CalendarEventSheetState extends State<CalendarEventSheet> {
     _detailsController.dispose();
     _dateController.dispose();
     _timeController.dispose();
-    _durationController.dispose();
     super.dispose();
   }
 
@@ -2086,11 +2186,6 @@ class _CalendarEventSheetState extends State<CalendarEventSheet> {
               ],
             ),
             const SizedBox(height: 10),
-            TextField(
-              controller: _durationController,
-              keyboardType: TextInputType.number,
-              decoration: _inputDecoration('기간', '분 단위'),
-            ),
             if (_error != null) ...[
               const SizedBox(height: 10),
               Text(
@@ -2166,15 +2261,11 @@ class _CalendarEventSheetState extends State<CalendarEventSheet> {
     final day = int.tryParse(matchDate.group(3)!);
     final hour = int.tryParse(matchTime.group(1)!);
     final minute = int.tryParse(matchTime.group(2)!);
-    final duration = int.tryParse(_durationController.text.trim());
     if (year == null ||
         month == null ||
         day == null ||
         hour == null ||
         minute == null ||
-        duration == null ||
-        duration < 1 ||
-        duration > 24 * 60 ||
         hour > 23 ||
         minute > 59) {
       return null;
@@ -2194,15 +2285,15 @@ class _CalendarEventSheetState extends State<CalendarEventSheet> {
       title: title,
       details: details,
       startAt: startAt,
-      endAt: startAt.add(Duration(minutes: duration)),
-      durationMinutes: duration,
+      endAt: startAt.add(Duration(minutes: _durationMinutes)),
+      durationMinutes: _durationMinutes,
     );
   }
 
   Future<void> _save() async {
     final value = _formValueOrNull();
     if (value == null) {
-      setState(() => _error = '제목, 날짜, 시간, 기간 또는 상세 내용을 확인해 주세요.');
+      setState(() => _error = '제목, 날짜, 시간 또는 상세 내용을 확인해 주세요.');
       return;
     }
     setState(() => _saving = true);

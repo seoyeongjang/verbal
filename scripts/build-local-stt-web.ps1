@@ -32,7 +32,7 @@ Push-Location $appDir
 try {
   & $flutter pub get
   & $flutter build web `
-    --dart-define=VOICE_MESSENGER_LOCAL_STT=true `
+    --dart-define=VERBAL_LOCAL_STT=true `
     --dart-define=LOCAL_STT_ENDPOINT=$endpoint
 }
 finally {

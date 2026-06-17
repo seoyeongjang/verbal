@@ -4,7 +4,7 @@
 
 상태 기준일: 2026-05-28
 
-이 문서는 현재 Voice Messenger MVP 기준의 Play Console Data Safety 초안입니다.
+이 문서는 현재 Verbal MVP 기준의 Play Console Data Safety 초안입니다.
 최종 제출 전 운영 빌드, 개인정보처리방침, 실제 활성화된 연동과 일치하는지
 반드시 재검토해야 합니다.
 

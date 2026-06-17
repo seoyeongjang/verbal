@@ -121,8 +121,8 @@ Verify:
 - Room creation.
 - Text message send.
 - Voice record.
-- Confirm mode transcription and send.
-- Instant mode pending message and transcription update.
+- Automatic voice send after STT succeeds.
+- STT retry and manual transcript recovery.
 - Audio playback.
 - Push notification on a second device.
 
@@ -153,7 +153,7 @@ This requires macOS, Xcode, and an Apple Developer account.
 Steps:
 
 1. Open `apps/mobile/ios/Runner.xcworkspace` on macOS.
-2. Set team signing for bundle ID `com.voicebeta.voiceMessenger`.
+2. Set team signing for bundle ID `com.voicebeta.verbal`.
 3. Add APNs key/certificate to Firebase Console.
 4. Build archive in Xcode.
 5. Upload to App Store Connect.
@@ -161,5 +161,5 @@ Steps:
 
 Firebase iOS app is already registered:
 
-- Bundle ID: `com.voicebeta.voiceMessenger`
-- App ID: `1:203811587610:ios:25d3ef7152d835c720f3a3`
+- Bundle ID: `com.voicebeta.verbal`
+- App ID: `1:203811587610:ios:e953a69e5930e77720f3a3`

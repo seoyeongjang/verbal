@@ -4,7 +4,10 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 import { getStorage } from "firebase-admin/storage";
 import { logger, setGlobalOptions } from "firebase-functions/v2";
-import { onDocumentCreated } from "firebase-functions/v2/firestore";
+import {
+  onDocumentCreated,
+  onDocumentUpdated,
+} from "firebase-functions/v2/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { defineSecret } from "firebase-functions/params";
@@ -84,8 +87,63 @@ const DEEPGRAM_COST_HIGH_PER_MINUTE_USD = boundedFloat(
   0,
   1,
 );
+const VOICE_STT_MIN_INSTANCES = boundedInt(
+  process.env.VOICE_STT_MIN_INSTANCES,
+  1,
+  0,
+  3,
+);
+const VOICE_STT_CALL_OPTIONS = {
+  secrets: [deepgramApiKey],
+  timeoutSeconds: 180,
+  memory: "512MiB" as const,
+  minInstances: VOICE_STT_MIN_INSTANCES,
+};
+const VOICE_STT_RECOVERY_CALL_OPTIONS = {
+  secrets: [deepgramApiKey],
+  timeoutSeconds: 180,
+  memory: "512MiB" as const,
+};
+const STALE_PENDING_VOICE_MS = boundedInt(
+  process.env.STALE_PENDING_VOICE_MS,
+  2 * 60 * 1000,
+  30 * 1000,
+  30 * 60 * 1000,
+);
+const DEEPGRAM_EMPTY_TRANSCRIPT_RETRY_COUNT = boundedInt(
+  process.env.DEEPGRAM_EMPTY_TRANSCRIPT_RETRY_COUNT,
+  1,
+  0,
+  4,
+);
+const DEEPGRAM_EMPTY_TRANSCRIPT_RETRY_DELAY_MS = boundedInt(
+  process.env.DEEPGRAM_EMPTY_TRANSCRIPT_RETRY_DELAY_MS,
+  250,
+  0,
+  2_000,
+);
+const DEEPGRAM_REQUEST_TIMEOUT_MS = boundedInt(
+  process.env.DEEPGRAM_REQUEST_TIMEOUT_MS,
+  4_500,
+  2_000,
+  30_000,
+);
+const DEEPGRAM_PARALLEL_KO_MODEL_RACE =
+  (process.env.DEEPGRAM_PARALLEL_KO_MODEL_RACE || "true")
+    .trim()
+    .toLowerCase() !== "false";
+const DEEPGRAM_DETECT_LANGUAGE_FALLBACK =
+  (process.env.DEEPGRAM_DETECT_LANGUAGE_FALLBACK || "true")
+    .trim()
+    .toLowerCase() !== "false";
+const STT_FAILED_RECOVERY_MAX_ATTEMPTS = boundedInt(
+  process.env.STT_FAILED_RECOVERY_MAX_ATTEMPTS,
+  3,
+  0,
+  10,
+);
 
-type RoomType = "direct" | "group";
+type RoomType = "direct" | "group" | "open";
 type SendMode = "confirm" | "instant";
 type MessageKind =
   | "text"
@@ -95,7 +153,7 @@ type MessageKind =
   | "location"
   | "calendarProposal";
 type SttStatus = "none" | "processing" | "completed" | "failed";
-type DeliveryStatus = "scheduled" | "sent" | "failed";
+type DeliveryStatus = "sending" | "scheduled" | "sent" | "failed";
 type RoomMemberRole = "owner" | "admin" | "member";
 type CalendarEventSource = "manual" | "voice" | "chatProposal";
 type CalendarEventStatus = "active";
@@ -136,6 +194,9 @@ interface MessageData {
   durationMs: number;
   sttStatus: SttStatus;
   sttCacheHit?: boolean;
+  sttRetryCount?: number;
+  lastSttRetryAt?: unknown;
+  errorCode?: string | null;
   sendMode: SendMode;
   language?: string;
   replyTo?: MessageReply | null;
@@ -149,6 +210,8 @@ interface MessageData {
   pinnedBy?: string;
   deletedAt?: unknown;
   createdAt?: unknown;
+  updatedAt?: unknown;
+  clientCreated?: boolean;
 }
 
 interface CalendarProposalCandidateData {
@@ -308,7 +371,10 @@ export const deleteMyAccount = onCall(async (request) => {
   }
   await deleteCollection(userRef.collection("fcmTokens"), 100);
   await deleteCollection(userRef.collection("calendarEvents"), 100);
-  await deleteCollection(userRef.collection("calendarNotificationDeliveries"), 100);
+  await deleteCollection(
+    userRef.collection("calendarNotificationDeliveries"),
+    100,
+  );
 
   const roomsSnapshot = await db
     .collection("rooms")
@@ -373,7 +439,7 @@ export const deleteMyAccount = onCall(async (request) => {
 
   await userRef.set(
     {
-      displayName: "탈퇴한 사용자",
+      displayName: "\uD0C8\uD1F4\uD55C \uC0AC\uC6A9\uC790",
       handle: "",
       defaultSendMode: "confirm",
       photoUrl: null,
@@ -403,7 +469,9 @@ export const getOperationalHealth = onCall(
       db.collection("usageRollups").doc(today).get(),
     ]);
     const deepgramConfigured = Boolean(
-      process.env.DEEPGRAM_API_KEY || deepgramApiKey.value(),
+      normalizeSecretValue(
+        process.env.DEEPGRAM_API_KEY || deepgramApiKey.value(),
+      ),
     );
     return {
       ok: bucketStatus.ok && deepgramConfigured,
@@ -437,6 +505,142 @@ export const getOperationalHealth = onCall(
   },
 );
 
+export const createDeepgramStreamingToken = onCall(
+  VOICE_STT_CALL_OPTIONS,
+  async (request) => {
+    const uid = requireUid(request.auth?.uid);
+    const apiKey = normalizeSecretValue(
+      process.env.DEEPGRAM_API_KEY || deepgramApiKey.value(),
+    );
+    if (!apiKey) {
+      throw new HttpsError(
+        "failed-precondition",
+        "DEEPGRAM_API_KEY is not configured.",
+      );
+    }
+    const language = normalizeDeepgramLanguage(
+      optionalString(request.data?.language) || "ko-KR",
+    );
+    const model =
+      optionalString(request.data?.model) ||
+      process.env.DEEPGRAM_MODEL ||
+      "nova-3";
+    const tokenResponse = await fetch(
+      "https://api.deepgram.com/v1/auth/grant",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Token ${apiKey}`,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+    );
+    const raw = await tokenResponse.text();
+    if (!tokenResponse.ok) {
+      logger.error("Deepgram token grant failed", {
+        uid,
+        status: tokenResponse.status,
+        body: raw.slice(0, 500),
+      });
+      return {
+        available: false,
+        reason: "deepgram_token_grant_failed",
+        expiresIn: 0,
+      };
+    }
+    let payload: { access_token?: string; expires_in?: number };
+    try {
+      payload = JSON.parse(raw) as {
+        access_token?: string;
+        expires_in?: number;
+      };
+    } catch (error) {
+      logger.error("Deepgram token response was not JSON", { uid, error });
+      throw new HttpsError("internal", "Deepgram token response was invalid.");
+    }
+    const accessToken = payload.access_token;
+    if (!accessToken) {
+      logger.error("Deepgram token response missing access_token", { uid });
+      return {
+        available: false,
+        reason: "deepgram_token_missing",
+        expiresIn: 0,
+      };
+    }
+    return {
+      accessToken,
+      expiresIn: boundedInt(payload.expires_in, 30, 1, 30),
+      url: deepgramStreamingListenUrl(model, language),
+      model,
+      language,
+      sampleRate: 16000,
+      channels: 1,
+      encoding: "linear16",
+    };
+  },
+);
+
+export const addFriendByHandle = onCall(async (request) => {
+  const uid = requireUid(request.auth?.uid);
+  const handle = normalizeHandle(requiredString(request.data?.handle, "handle"));
+  validateHandle(handle);
+
+  const handleSnapshot = await db.collection("handles").doc(handle).get();
+  const targetUid = handleSnapshot.data()?.uid;
+  if (!targetUid || typeof targetUid !== "string") {
+    throw new HttpsError("not-found", `Handle not found: ${handle}`);
+  }
+  if (targetUid === uid) {
+    throw new HttpsError(
+      "invalid-argument",
+      "You cannot add yourself as a friend.",
+    );
+  }
+
+  const targetSnapshot = await db.collection("users").doc(targetUid).get();
+  const target = targetSnapshot.data();
+  if (!target || typeof target.displayName !== "string") {
+    throw new HttpsError("not-found", "User profile was not found.");
+  }
+  const targetHandle =
+    typeof target.handle === "string" && target.handle.trim()
+      ? target.handle.trim()
+      : handle;
+  const now = FieldValue.serverTimestamp();
+  const friendPayload: Record<string, unknown> = {
+    uid: targetUid,
+    displayName: target.displayName,
+    handle: targetHandle,
+    defaultSendMode:
+      typeof target.defaultSendMode === "string"
+        ? target.defaultSendMode
+        : "confirm",
+    addedAt: now,
+    updatedAt: now,
+  };
+  if (typeof target.photoUrl === "string" && target.photoUrl.trim()) {
+    friendPayload.photoUrl = target.photoUrl.trim();
+  }
+  await db
+    .collection("users")
+    .doc(uid)
+    .collection("friends")
+    .doc(targetUid)
+    .set(friendPayload, { merge: true });
+
+  return {
+    friend: {
+      uid: targetUid,
+      displayName: target.displayName,
+      handle: targetHandle,
+      defaultSendMode: friendPayload.defaultSendMode,
+      photoUrl: friendPayload.photoUrl ?? null,
+    },
+  };
+});
+
 export const createRoom = onCall(async (request) => {
   const uid = requireUid(request.auth?.uid);
   const participantHandles = stringArray(request.data?.participantHandles)
@@ -445,10 +649,10 @@ export const createRoom = onCall(async (request) => {
   const type = roomType(request.data?.type);
   const title = optionalString(request.data?.title);
 
-  if (participantHandles.length === 0) {
+  if (participantHandles.length === 0 && type !== "open") {
     throw new HttpsError(
       "invalid-argument",
-      "At least one participant handle is required.",
+      "At least one participant handle is required unless creating an open room.",
     );
   }
   participantHandles.forEach(validateHandle);
@@ -515,7 +719,7 @@ export const createRoomInvite = onCall(async (request) => {
   const { roomRef } = await requireRoomManager(roomId, uid);
   const inviteRef = db.collection("roomInvites").doc();
   const token = inviteRef.id;
-  const baseUrl = process.env.PUBLIC_APP_URL || "https://voice-messenger.local";
+  const baseUrl = process.env.PUBLIC_APP_URL || "https://verbal.local";
   const url = `${baseUrl.replace(/\/$/, "")}/invite/${token}`;
   const createdAt = new Date();
   const now = FieldValue.serverTimestamp();
@@ -1010,7 +1214,8 @@ export const createCalendarProposal = onCall(async (request) => {
   const timezone = calendarTimezoneValue(request.data?.timezone);
   const candidates = calendarProposalCandidates(request.data?.candidates);
   const transcript = optionalString(request.data?.transcript).slice(0, 4000);
-  const source = optionalString(request.data?.source) === "voice" ? "voice" : "manual";
+  const source =
+    optionalString(request.data?.source) === "voice" ? "voice" : "manual";
   const { roomRef, room } = await requireRoomParticipant(roomId, uid);
   const messageRef = roomRef.collection("messages").doc();
   const proposalRef = roomRef.collection("calendarProposals").doc();
@@ -1182,11 +1387,7 @@ export const finalizeCalendarProposal = onCall(async (request) => {
         "Calendar proposal is not open.",
       );
     }
-    if (
-      proposal.createdBy !== uid &&
-      role !== "owner" &&
-      role !== "admin"
-    ) {
+    if (proposal.createdBy !== uid && role !== "owner" && role !== "admin") {
       throw new HttpsError(
         "permission-denied",
         "Calendar proposal manager permission is required.",
@@ -1238,7 +1439,13 @@ export const finalizeCalendarProposal = onCall(async (request) => {
         .doc(`${safeId(proposalId)}_${safeId(candidateId)}`);
       transaction.set(
         eventRef,
-        calendarEventFromProposal(ownerId, roomId, proposalId, proposal, candidate),
+        calendarEventFromProposal(
+          ownerId,
+          roomId,
+          proposalId,
+          proposal,
+          candidate,
+        ),
         { merge: true },
       );
     }
@@ -1251,7 +1458,10 @@ export const addFinalizedProposalToMyCalendar = onCall(async (request) => {
   const roomId = requiredString(request.data?.roomId, "roomId");
   const proposalId = requiredString(request.data?.proposalId, "proposalId");
   const { roomRef } = await requireRoomParticipant(roomId, uid);
-  const snapshot = await roomRef.collection("calendarProposals").doc(proposalId).get();
+  const snapshot = await roomRef
+    .collection("calendarProposals")
+    .doc(proposalId)
+    .get();
   const proposal = proposalSnapshot(snapshot, roomId, proposalId);
   if (proposal.status !== "finalized" || !proposal.finalCandidateId) {
     throw new HttpsError(
@@ -1288,11 +1498,7 @@ export const cancelCalendarProposal = onCall(async (request) => {
   await db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(proposalRef);
     const proposal = proposalSnapshot(snapshot, roomId, proposalId);
-    if (
-      proposal.createdBy !== uid &&
-      role !== "owner" &&
-      role !== "admin"
-    ) {
+    if (proposal.createdBy !== uid && role !== "owner" && role !== "admin") {
       throw new HttpsError(
         "permission-denied",
         "Calendar proposal manager permission is required.",
@@ -1333,9 +1539,9 @@ export const createTranscriptionDraft = onCall(
       optionalString(request.data?.draftId) || db.collection("_ids").doc().id;
     const audioPath = requiredString(request.data?.audioPath, "audioPath");
     const language = optionalString(request.data?.language) || "ko";
-    const transcriptOverride = optionalString(
+    const transcriptOverride = sanitizeVoiceTranscript(
       request.data?.transcriptOverride,
-    ).slice(0, 4000);
+    );
     const durationMs = numberValue(request.data?.durationMs, 0);
     assertVoiceDuration(durationMs);
 
@@ -1438,9 +1644,9 @@ export const createCalendarIntentDraft = onCall(
       optionalString(request.data?.draftId) || db.collection("_ids").doc().id;
     const audioPath = requiredString(request.data?.audioPath, "audioPath");
     const language = optionalString(request.data?.language) || "ko";
-    const transcriptOverride = optionalString(
+    const transcriptOverride = sanitizeVoiceTranscript(
       request.data?.transcriptOverride,
-    ).slice(0, 4000);
+    );
     const durationMs = numberValue(request.data?.durationMs, 0);
     assertVoiceDuration(durationMs);
 
@@ -1535,7 +1741,7 @@ export const updateCalendarEvent = onCall(async (request) => {
       false,
     ),
     {
-    merge: true,
+      merge: true,
     },
   );
   const updated = await eventRef.get();
@@ -1648,7 +1854,7 @@ export const sendVoiceMessage = onCall(async (request) => {
     room,
     messageRef.id,
     message,
-    finalText || "새 음성 메시지",
+    finalText || "\uC74C\uC131 \uBCC0\uD658 \uACB0\uACFC \uC5C6\uC74C",
   );
   await deleteStorageFile(sourceAudioPath);
   await draft.ref.set(
@@ -1662,65 +1868,812 @@ export const sendVoiceMessage = onCall(async (request) => {
   return { messageId: messageRef.id };
 });
 
-export const sendInstantVoiceMessage = onCall(async (request) => {
+export const sendInstantVoiceMessage = onCall(
+  VOICE_STT_CALL_OPTIONS,
+  async (request) => {
+    const uid = requireUid(request.auth?.uid);
+    const roomId = requiredString(request.data?.roomId, "roomId");
+    const messageId =
+      optionalString(request.data?.messageId) || db.collection("_ids").doc().id;
+    const audioPath = requiredString(request.data?.audioPath, "audioPath");
+    const durationMs = numberValue(request.data?.durationMs, 0);
+    const language = optionalString(request.data?.language) || "ko";
+    const transcriptOverride = sanitizeVoiceTranscript(
+      request.data?.transcriptOverride,
+    );
+    const sendMode = sendModeValue(request.data?.sendMode);
+    assertVoiceDuration(durationMs);
+
+    if (!audioPath.startsWith(`voice_drafts/${uid}/`)) {
+      throw new HttpsError(
+        "permission-denied",
+        "Draft audio path is not owned by the caller.",
+      );
+    }
+
+    const { roomRef, room } = await requireRoomParticipant(roomId, uid);
+    await recordDailyUsage(uid, { voiceCount: 1, voiceMs: durationMs });
+    const retentionDays = roomAudioRetentionDays(room);
+    const targetAudioPath = `voice_messages/${roomId}/${messageId}${audioExtension(audioPath)}`;
+    await copyAudioObject(audioPath, targetAudioPath, {
+      roomId,
+      ownerId: uid,
+      durationMs: durationMs.toString(),
+      language,
+    });
+    const replyTo = await replyToValue(
+      roomRef,
+      optionalString(request.data?.replyToMessageId),
+    );
+
+    let transcript = transcriptOverride;
+    let audioHash: string | null = null;
+    let sttCacheHit = false;
+    let sttStatus: SttStatus = transcript ? "completed" : "processing";
+    let sttErrorCode: string | null = null;
+    if (!transcript) {
+      try {
+        const transcription = await transcribeStorageAudio(
+          targetAudioPath,
+          language,
+        );
+        transcript = sanitizeVoiceTranscriptForLanguage(
+          transcription.transcript,
+          language,
+        );
+        if (!transcript) {
+          throw new HttpsError(
+            "internal",
+            "Speech-to-text returned an empty transcript.",
+          );
+        }
+        audioHash = transcription.audioHash;
+        sttCacheHit = transcription.cacheHit;
+        sttStatus = "completed";
+      } catch (error) {
+        logger.error("sendInstantVoiceMessage inline STT failed", {
+          roomId,
+          messageId,
+          error,
+        });
+        await Promise.allSettled([
+          deleteStorageFile(audioPath),
+          deleteStorageFile(targetAudioPath),
+        ]);
+        throw new HttpsError(
+          "internal",
+          "\uC74C\uC131 \uC778\uC2DD\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uB179\uC74C\uD574 \uC8FC\uC138\uC694.",
+        );
+      }
+    }
+
+    const message: MessageData = {
+      senderId: uid,
+      kind: "voice",
+      text: transcript,
+      transcript,
+      audioPath: targetAudioPath,
+      audioHash,
+      audioExpiresAt: retentionExpiryTimestamp(retentionDays),
+      audioRetentionDays: retentionDays,
+      audioRetentionStatus: "active",
+      durationMs,
+      sttStatus,
+      sttCacheHit,
+      errorCode: sttErrorCode,
+      sendMode,
+      language,
+      replyTo,
+    };
+    await createMessage(
+      roomRef,
+      room,
+      messageId,
+      message,
+      transcript || "\uC74C\uC131 \uBCC0\uD658 \uC2E4\uD328",
+    );
+    await deleteStorageFile(audioPath);
+    return { messageId };
+  },
+);
+
+async function waitForMessageData(
+  messageRef: admin.firestore.DocumentReference,
+  notFoundMessage: string,
+  timeoutMs = 2500,
+): Promise<{ message: MessageData }> {
+  const startedAt = Date.now();
+  let delayMs = 80;
+  for (;;) {
+    const snapshot = await messageRef.get();
+    const message = snapshot.data() as MessageData | undefined;
+    if (snapshot.exists && message) {
+      return { message };
+    }
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new HttpsError("not-found", notFoundMessage);
+    }
+    await sleepMs(delayMs);
+    delayMs = Math.min(240, delayMs + 40);
+  }
+}
+
+export const finalizeClientVoiceMessage = onCall(
+  VOICE_STT_CALL_OPTIONS,
+  async (request) => {
+    const startedAt = Date.now();
+    const uid = requireUid(request.auth?.uid);
+    const roomId = requiredString(request.data?.roomId, "roomId");
+    const messageId = requiredString(request.data?.messageId, "messageId");
+    const audioPath = requiredString(request.data?.audioPath, "audioPath");
+    const durationMs = numberValue(request.data?.durationMs, 0);
+    const language = optionalString(request.data?.language) || "ko";
+    const transcriptOverride = sanitizeVoiceTranscript(
+      request.data?.transcriptOverride,
+    );
+    const clientUploadMs = numberValue(request.data?.clientUploadMs, 0);
+    const deferStt = request.data?.deferStt === true;
+    const forceServerSttCorrection =
+      request.data?.forceServerSttCorrection === true;
+    assertVoiceDuration(durationMs);
+
+    if (!audioPath.startsWith(`voice_drafts/${uid}/`)) {
+      throw new HttpsError(
+        "permission-denied",
+        "Draft audio path is not owned by the caller.",
+      );
+    }
+    if (!path.basename(audioPath).startsWith(messageId)) {
+      throw new HttpsError(
+        "permission-denied",
+        "Draft audio path does not match the target message.",
+      );
+    }
+
+    const { roomRef, room } = await requireRoomParticipant(roomId, uid);
+    const messageRef = roomRef.collection("messages").doc(messageId);
+    const { message } = await waitForMessageData(
+      messageRef,
+      "Pending voice message was not found.",
+    );
+    if (
+      message.kind !== "voice" ||
+      message.senderId !== uid ||
+      message.clientCreated !== true ||
+      message.deliveryStatus !== "sending" ||
+      message.audioPath
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Message is not a pending client voice message.",
+      );
+    }
+
+    await recordDailyUsage(uid, { voiceCount: 1, voiceMs: durationMs });
+    const retentionDays = roomAudioRetentionDays(room);
+    const targetAudioPath = `voice_messages/${roomId}/${messageId}${audioExtension(audioPath)}`;
+    await copyAudioObject(audioPath, targetAudioPath, {
+      roomId,
+      ownerId: uid,
+      durationMs: durationMs.toString(),
+      language,
+    });
+
+    let transcript = preferBetterVoiceTranscript(
+      transcriptOverride,
+      voiceTranscriptFromMessage(message),
+    );
+    let audioHash: string | null = null;
+    let sttCacheHit = false;
+    let sttStatus: SttStatus = transcript ? "completed" : "processing";
+    let sttErrorCode: string | null = null;
+    if (!transcript) {
+      const latestBeforeSttSnapshot = await messageRef.get();
+      const latestBeforeStt = latestBeforeSttSnapshot.data() as
+        | MessageData
+        | undefined;
+      const latestTranscript = voiceTranscriptFromMessage(latestBeforeStt);
+      if (latestTranscript) {
+        transcript = latestTranscript;
+        audioHash =
+          typeof latestBeforeStt?.audioHash === "string"
+            ? latestBeforeStt.audioHash
+            : null;
+        sttStatus = "completed";
+        sttErrorCode = null;
+      }
+    }
+    if (!transcript || forceServerSttCorrection || deferStt) {
+      // Finalization only makes the voice message deliverable and playable.
+      // Deepgram STT runs through inline client STT and the update trigger, so
+      // the user-facing send path does not wait on a network transcription.
+      sttCacheHit = false;
+    }
+    if (!transcript) {
+      sttStatus = "processing";
+      sttErrorCode = null;
+    }
+
+    const now = FieldValue.serverTimestamp();
+    const latestSnapshot = await messageRef.get();
+    const latestMessage = latestSnapshot.data() as MessageData | undefined;
+    const latestTranscript = voiceTranscriptFromMessage(latestMessage);
+    if (isBetterVoiceTranscriptCandidate(latestTranscript, transcript)) {
+      transcript = latestTranscript;
+      sttStatus = "completed";
+      sttErrorCode = null;
+    }
+    const preview =
+      transcript ||
+      (sttStatus === "processing" ? "\uC74C\uC131 \uBCC0\uD658 \uC911..." : "\uC74C\uC131 \uBCC0\uD658 \uC2E4\uD328");
+    const latestRoomSnapshot = await roomRef.get();
+    const latestRoom = latestRoomSnapshot.data() as RoomData | undefined;
+    const shouldUpdateLastMessage =
+      latestRoom?.lastMessage?.messageId === messageId;
+    const messageUpdate: Record<string, unknown> = {
+      audioPath: targetAudioPath,
+      audioExpiresAt: retentionExpiryTimestamp(retentionDays),
+      audioRetentionDays: retentionDays,
+      audioRetentionStatus: "active",
+      durationMs,
+      deliveryStatus: "sent",
+      updatedAt: now,
+    };
+    if (transcript) {
+      messageUpdate.text = transcript;
+      messageUpdate.transcript = transcript;
+      messageUpdate.audioHash = audioHash;
+      messageUpdate.sttStatus = sttStatus;
+      messageUpdate.sttCacheHit = sttCacheHit;
+      messageUpdate.errorCode = sttErrorCode;
+    } else if (deferStt) {
+      // Keep the message explicitly recoverable. The audioPath update below
+      // wakes the Firestore update trigger, which then runs the storage STT
+      // fallback without blocking client-side send completion.
+      messageUpdate.sttStatus = "processing";
+      messageUpdate.errorCode = null;
+    } else if (!deferStt) {
+      messageUpdate.audioHash = audioHash;
+      messageUpdate.sttStatus = sttStatus;
+      messageUpdate.sttCacheHit = sttCacheHit;
+      messageUpdate.errorCode = sttErrorCode;
+    }
+    const batch = db.batch();
+    batch.set(messageRef, messageUpdate, { merge: true });
+    if (shouldUpdateLastMessage && (transcript || !deferStt)) {
+      batch.set(
+        roomRef,
+        {
+          lastMessage: {
+            messageId,
+            kind: "voice",
+            preview: transcript || preview,
+            senderId: uid,
+            createdAt: message.createdAt || now,
+          },
+          updatedAt: now,
+        },
+        { merge: true },
+      );
+    }
+    await batch.commit();
+    await deleteStorageFile(audioPath);
+    logger.info("finalizeClientVoiceMessage completed", {
+      roomId,
+      messageId,
+      clientUploadMs,
+      sttMs: 0,
+      deferStt,
+      forceServerSttCorrection,
+      finalizeFunctionMs: Date.now() - startedAt,
+    });
+    return { messageId, sttStatus };
+  },
+);
+
+export const updateClientVoiceTranscript = onCall(async (request) => {
   const uid = requireUid(request.auth?.uid);
   const roomId = requiredString(request.data?.roomId, "roomId");
-  const messageId =
-    optionalString(request.data?.messageId) || db.collection("_ids").doc().id;
-  const audioPath = requiredString(request.data?.audioPath, "audioPath");
-  const durationMs = numberValue(request.data?.durationMs, 0);
-  const language = optionalString(request.data?.language) || "ko";
-  const transcriptOverride = optionalString(
-    request.data?.transcriptOverride,
-  ).slice(0, 4000);
-  const sendMode = sendModeValue(request.data?.sendMode);
-  assertVoiceDuration(durationMs);
-
-  if (!audioPath.startsWith(`voice_drafts/${uid}/`)) {
-    throw new HttpsError(
-      "permission-denied",
-      "Draft audio path is not owned by the caller.",
-    );
+  const messageId = requiredString(request.data?.messageId, "messageId");
+  const transcript = sanitizeVoiceTranscript(request.data?.transcript);
+  if (!transcript) {
+    throw new HttpsError("invalid-argument", "Transcript is required.");
   }
 
-  const { roomRef, room } = await requireRoomParticipant(roomId, uid);
-  await recordDailyUsage(uid, { voiceCount: 1, voiceMs: durationMs });
-  const retentionDays = roomAudioRetentionDays(room);
-  const targetAudioPath = `voice_messages/${roomId}/${messageId}${audioExtension(audioPath)}`;
-  await copyAudioObject(audioPath, targetAudioPath, {
+  const { roomRef } = await requireRoomParticipant(roomId, uid);
+  const messageRef = roomRef.collection("messages").doc(messageId);
+  const messageSnapshot = await messageRef.get();
+  const message = messageSnapshot.data() as MessageData | undefined;
+  if (!messageSnapshot.exists || !message) {
+    throw new HttpsError("not-found", "Voice message was not found.");
+  }
+  if (
+    message.kind !== "voice" ||
+    message.senderId !== uid ||
+    message.clientCreated !== true ||
+    message.deletedAt
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Message is not an editable client voice message.",
+    );
+  }
+  const deliveryStatus = message.deliveryStatus || "sent";
+  if (deliveryStatus !== "sending" && deliveryStatus !== "sent") {
+    throw new HttpsError(
+      "failed-precondition",
+      "Voice message cannot accept transcript updates.",
+    );
+  }
+  const existingTranscript = voiceTranscriptFromMessage(message);
+  if (!isBetterVoiceTranscriptCandidate(transcript, existingTranscript)) {
+    logger.info("updateClientVoiceTranscript ignored stale transcript", {
+      roomId,
+      messageId,
+      incomingTranscriptLength: transcript.length,
+      existingTranscriptLength: existingTranscript.length,
+    });
+    return {
+      messageId,
+      sttStatus: "completed",
+      transcriptLength: existingTranscript.length,
+      ignoredStaleTranscript: true,
+    };
+  }
+
+  const now = FieldValue.serverTimestamp();
+  const batch = db.batch();
+  batch.set(
+    messageRef,
+    {
+      text: transcript,
+      transcript,
+      sttStatus: "completed",
+      errorCode: null,
+      updatedAt: now,
+    },
+    { merge: true },
+  );
+  const roomSnapshot = await roomRef.get();
+  const room = roomSnapshot.data() as RoomData | undefined;
+  if (room?.lastMessage?.messageId === messageId) {
+    batch.set(
+      roomRef,
+      {
+        lastMessage: {
+          messageId,
+          kind: "voice",
+          preview: transcript,
+          senderId: uid,
+          createdAt: message.createdAt || now,
+        },
+        updatedAt: now,
+      },
+      { merge: true },
+    );
+  }
+  await batch.commit();
+  logger.info("updateClientVoiceTranscript completed", {
     roomId,
-    ownerId: uid,
-    durationMs: durationMs.toString(),
-    language,
-  });
-  const replyTo = await replyToValue(
-    roomRef,
-    optionalString(request.data?.replyToMessageId),
-  );
-  const message: MessageData = {
-    senderId: uid,
-    kind: "voice",
-    text: transcriptOverride,
-    transcript: transcriptOverride,
-    audioPath: targetAudioPath,
-    audioHash: null,
-    audioExpiresAt: retentionExpiryTimestamp(retentionDays),
-    audioRetentionDays: retentionDays,
-    audioRetentionStatus: "active",
-    durationMs,
-    sttStatus: transcriptOverride ? "completed" : "processing",
-    sendMode,
-    language,
-    replyTo,
-  };
-  await createMessage(
-    roomRef,
-    room,
     messageId,
-    message,
-    transcriptOverride || "새 음성 메시지",
+    transcriptLength: transcript.length,
+  });
+  return { messageId, sttStatus: "completed" };
+});
+
+export const recoverClientVoiceMessageTranscript = onCall(
+  VOICE_STT_RECOVERY_CALL_OPTIONS,
+  async (request) => {
+    const uid = requireUid(request.auth?.uid);
+    const roomId = requiredString(request.data?.roomId, "roomId");
+    const messageId = requiredString(request.data?.messageId, "messageId");
+
+    const { roomRef } = await requireRoomParticipant(roomId, uid);
+    const messageRef = roomRef.collection("messages").doc(messageId);
+    const messageSnapshot = await messageRef.get();
+    const message = messageSnapshot.data() as MessageData | undefined;
+    if (!messageSnapshot.exists || !message) {
+      throw new HttpsError("not-found", "Voice message was not found.");
+    }
+    if (
+      message.kind !== "voice" ||
+      message.clientCreated !== true ||
+      message.deletedAt
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Message is not a recoverable client voice message.",
+      );
+    }
+
+    const existingTranscript = voiceTranscriptFromMessage(message);
+    if (existingTranscript) {
+      return {
+        messageId,
+        sttStatus: "completed",
+        transcript: existingTranscript,
+        transcriptLength: existingTranscript.length,
+        alreadyCompleted: true,
+      };
+    }
+
+    const audioPath = optionalString(message.audioPath);
+    if (!audioPath.startsWith("voice_messages/")) {
+      return {
+        messageId,
+        sttStatus: message.sttStatus || "processing",
+        transcriptLength: 0,
+        recoverable: false,
+      };
+    }
+
+    const startedAt = Date.now();
+    await transcribePendingMessage(roomRef, messageId, message);
+    const updatedSnapshot = await messageRef.get();
+    const updated = updatedSnapshot.data() as MessageData | undefined;
+    const transcript = voiceTranscriptFromMessage(updated);
+    const sttStatus =
+      updated?.sttStatus || (transcript ? "completed" : "processing");
+    logger.info("recoverClientVoiceMessageTranscript completed", {
+      roomId,
+      messageId,
+      sttStatus,
+      transcriptLength: transcript.length,
+      totalMs: Date.now() - startedAt,
+    });
+    return {
+      messageId,
+      sttStatus,
+      transcript,
+      transcriptLength: transcript.length,
+      totalMs: Date.now() - startedAt,
+      recoverable: true,
+    };
+  },
+);
+
+export const transcribeClientVoiceMessageInline = onCall(
+  VOICE_STT_CALL_OPTIONS,
+  async (request) => {
+    const startedAt = Date.now();
+    const uid = requireUid(request.auth?.uid);
+    const roomId = requiredString(request.data?.roomId, "roomId");
+    const messageId = requiredString(request.data?.messageId, "messageId");
+    const language = optionalString(request.data?.language) || "ko";
+    const contentType =
+      optionalString(request.data?.contentType) || "application/octet-stream";
+    const durationMs = numberValue(request.data?.durationMs, 0);
+    assertVoiceDuration(durationMs);
+
+    const base64 = requiredString(request.data?.audioBase64, "audioBase64");
+    const maxInlineBytes = boundedInt(
+      process.env.INLINE_STT_MAX_BYTES,
+      2 * 1024 * 1024,
+      256 * 1024,
+      8 * 1024 * 1024,
+    );
+    const audioBytes = Buffer.from(base64, "base64");
+    if (!audioBytes.length || audioBytes.length > maxInlineBytes) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Inline voice audio size is invalid.",
+      );
+    }
+
+    const { roomRef } = await requireRoomParticipant(roomId, uid);
+    const messageRef = roomRef.collection("messages").doc(messageId);
+    const { message } = await waitForMessageData(
+      messageRef,
+      "Voice message was not found.",
+    );
+    if (
+      message.kind !== "voice" ||
+      message.senderId !== uid ||
+      message.clientCreated !== true ||
+      message.deletedAt
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Message is not an editable client voice message.",
+      );
+    }
+    const deliveryStatus = message.deliveryStatus || "sent";
+    if (deliveryStatus !== "sending" && deliveryStatus !== "sent") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Voice message cannot accept transcript updates.",
+      );
+    }
+
+    const apiKey = normalizeSecretValue(
+      process.env.DEEPGRAM_API_KEY || deepgramApiKey.value(),
+    );
+    if (!apiKey) {
+      throw new HttpsError(
+        "failed-precondition",
+        "DEEPGRAM_API_KEY is not configured.",
+      );
+    }
+    const model = deepgramPrerecordedModel(language);
+    const sttStartedAt = Date.now();
+    const transcription = await transcribeAudioBytesCached({
+      apiKey,
+      audioBytes,
+      language: normalizeDeepgramLanguage(language),
+      model,
+      contentType,
+    });
+    const transcript = sanitizeVoiceTranscriptForLanguage(
+      transcription.transcript,
+      language,
+    );
+    if (!transcript) {
+      const latestSnapshot = await messageRef.get();
+      const latestMessage = latestSnapshot.data() as MessageData | undefined;
+      const latestTranscript = voiceTranscriptFromMessage(latestMessage);
+      if (latestTranscript) {
+        logger.info("transcribeClientVoiceMessageInline empty result ignored", {
+          roomId,
+          messageId,
+          audioBytes: audioBytes.length,
+          sttMs: Date.now() - sttStartedAt,
+          totalMs: Date.now() - startedAt,
+          cacheHit: transcription.cacheHit,
+          existingTranscriptLength: latestTranscript.length,
+        });
+        return {
+          messageId,
+          sttStatus: "completed",
+          transcript: latestTranscript,
+          sttMs: Date.now() - sttStartedAt,
+          totalMs: Date.now() - startedAt,
+          transcriptLength: latestTranscript.length,
+          cacheHit: transcription.cacheHit,
+          ignoredEmptyResult: true,
+        };
+      }
+      const now = FieldValue.serverTimestamp();
+      const batch = db.batch();
+      batch.set(
+        messageRef,
+        {
+          sttStatus: "processing",
+          sttCacheHit: transcription.cacheHit,
+          audioHash: transcription.audioHash,
+          errorCode: "inline_stt_empty_transcript",
+          updatedAt: now,
+        },
+        { merge: true },
+      );
+      const roomSnapshot = await roomRef.get();
+      const room = roomSnapshot.data() as RoomData | undefined;
+      if (room?.lastMessage?.messageId === messageId) {
+        batch.set(
+          roomRef,
+          {
+            lastMessage: {
+              messageId,
+              kind: "voice",
+              preview: "\uC74C\uC131 \uBCC0\uD658 \uC911...",
+              senderId: uid,
+              createdAt: message.createdAt || now,
+            },
+            updatedAt: now,
+          },
+          { merge: true },
+        );
+      }
+      await batch.commit();
+      logger.warn("transcribeClientVoiceMessageInline empty transcript", {
+        roomId,
+        messageId,
+        audioBytes: audioBytes.length,
+        sttMs: Date.now() - sttStartedAt,
+        totalMs: Date.now() - startedAt,
+        cacheHit: transcription.cacheHit,
+      });
+      return {
+        messageId,
+        sttStatus: "processing",
+        sttMs: Date.now() - sttStartedAt,
+        totalMs: Date.now() - startedAt,
+        transcriptLength: 0,
+        cacheHit: transcription.cacheHit,
+        errorCode: "inline_stt_empty_transcript",
+      };
+    }
+
+    const latestSnapshot = await messageRef.get();
+    const latestMessage = latestSnapshot.data() as MessageData | undefined;
+    const latestTranscript = voiceTranscriptFromMessage(latestMessage);
+    const transcriptForWrite = preferBetterVoiceTranscript(
+      transcript,
+      latestTranscript,
+    );
+    const ignoredStaleTranscript = transcriptForWrite !== transcript;
+    const now = FieldValue.serverTimestamp();
+    const batch = db.batch();
+    batch.set(
+      messageRef,
+      {
+        text: transcriptForWrite,
+        transcript: transcriptForWrite,
+        audioHash: transcription.audioHash,
+        sttStatus: "completed",
+        sttCacheHit: transcription.cacheHit,
+        errorCode: null,
+        updatedAt: now,
+      },
+      { merge: true },
+    );
+    const roomSnapshot = await roomRef.get();
+    const room = roomSnapshot.data() as RoomData | undefined;
+    if (room?.lastMessage?.messageId === messageId) {
+      batch.set(
+        roomRef,
+        {
+          lastMessage: {
+            messageId,
+            kind: "voice",
+            preview: transcriptForWrite,
+            senderId: uid,
+            createdAt: message.createdAt || now,
+          },
+          updatedAt: now,
+        },
+        { merge: true },
+      );
+    }
+    await batch.commit();
+    logger.info("transcribeClientVoiceMessageInline completed", {
+      roomId,
+      messageId,
+      audioBytes: audioBytes.length,
+      transcriptLength: transcriptForWrite.length,
+      ignoredStaleTranscript,
+      sttMs: Date.now() - sttStartedAt,
+      totalMs: Date.now() - startedAt,
+      cacheHit: transcription.cacheHit,
+    });
+    return {
+      messageId,
+      sttStatus: "completed",
+      transcript: transcriptForWrite,
+      sttMs: Date.now() - sttStartedAt,
+      totalMs: Date.now() - startedAt,
+      transcriptLength: transcriptForWrite.length,
+      cacheHit: transcription.cacheHit,
+      ignoredStaleTranscript,
+    };
+  },
+);
+
+export const transcribeVoiceAudioDraft = onCall(
+  VOICE_STT_RECOVERY_CALL_OPTIONS,
+  async (request) => {
+    const startedAt = Date.now();
+    const uid = requireUid(request.auth?.uid);
+    const roomId = requiredString(request.data?.roomId, "roomId");
+    const language = optionalString(request.data?.language) || "ko";
+    const contentType =
+      optionalString(request.data?.contentType) || "application/octet-stream";
+    const durationMs = numberValue(request.data?.durationMs, 0);
+    assertVoiceDuration(durationMs);
+
+    const base64 = requiredString(request.data?.audioBase64, "audioBase64");
+    const maxInlineBytes = boundedInt(
+      process.env.INLINE_STT_MAX_BYTES,
+      2 * 1024 * 1024,
+      256 * 1024,
+      8 * 1024 * 1024,
+    );
+    const audioBytes = Buffer.from(base64, "base64");
+    if (!audioBytes.length || audioBytes.length > maxInlineBytes) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Inline voice audio size is invalid.",
+      );
+    }
+
+    await requireRoomParticipant(roomId, uid);
+    const apiKey = normalizeSecretValue(
+      process.env.DEEPGRAM_API_KEY || deepgramApiKey.value(),
+    );
+    if (!apiKey) {
+      throw new HttpsError(
+        "failed-precondition",
+        "DEEPGRAM_API_KEY is not configured.",
+      );
+    }
+
+    const model = deepgramPrerecordedModel(language);
+    const sttStartedAt = Date.now();
+    const transcription = await transcribeAudioBytesCached({
+      apiKey,
+      audioBytes,
+      language: normalizeDeepgramLanguage(language),
+      model,
+      contentType,
+    });
+    const transcript = sanitizeVoiceTranscriptForLanguage(
+      transcription.transcript,
+      language,
+    );
+    const sttMs = Date.now() - sttStartedAt;
+    const totalMs = Date.now() - startedAt;
+    logger.info("transcribeVoiceAudioDraft completed", {
+      roomId,
+      uid,
+      audioBytes: audioBytes.length,
+      transcriptLength: transcript.length,
+      sttMs,
+      totalMs,
+      cacheHit: transcription.cacheHit,
+    });
+    return {
+      messageId: "draft",
+      sttStatus: transcript ? "completed" : "processing",
+      transcript,
+      transcriptLength: transcript.length,
+      sttMs,
+      totalMs,
+      cacheHit: transcription.cacheHit,
+    };
+  },
+);
+
+export const markClientVoiceMessageFailed = onCall(async (request) => {
+  const uid = requireUid(request.auth?.uid);
+  const roomId = requiredString(request.data?.roomId, "roomId");
+  const messageId = requiredString(request.data?.messageId, "messageId");
+  const reason = optionalString(request.data?.reason).slice(0, 500);
+  const { roomRef, room } = await requireRoomParticipant(roomId, uid);
+  const messageRef = roomRef.collection("messages").doc(messageId);
+  const messageSnapshot = await messageRef.get();
+  const message = messageSnapshot.data() as MessageData | undefined;
+  if (!messageSnapshot.exists || !message) {
+    throw new HttpsError("not-found", "Pending voice message was not found.");
+  }
+  if (
+    message.kind !== "voice" ||
+    message.senderId !== uid ||
+    message.clientCreated !== true ||
+    message.deliveryStatus !== "sending"
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Message is not a pending client voice message.",
+    );
+  }
+  const now = FieldValue.serverTimestamp();
+  const batch = db.batch();
+  batch.set(
+    messageRef,
+    {
+      deliveryStatus: "failed",
+      sttStatus: "failed",
+      errorCode: reason || "client_voice_finalize_failed",
+      updatedAt: now,
+    },
+    { merge: true },
   );
-  await deleteStorageFile(audioPath);
+  if (room.lastMessage?.messageId === messageId) {
+    batch.set(
+      roomRef,
+      {
+        lastMessage: {
+          messageId,
+          kind: "voice",
+          preview: "\uC74C\uC131 \uBA54\uC2DC\uC9C0 \uC804\uC1A1 \uC2E4\uD328",
+          senderId: uid,
+          createdAt: message.createdAt || now,
+        },
+        updatedAt: now,
+      },
+      { merge: true },
+    );
+  }
+  await batch.commit();
   return { messageId };
 });
 
@@ -2176,7 +3129,42 @@ export const onMessageCreated = onDocumentCreated(
       await transcribePendingMessage(roomRef, messageId, message);
     }
 
+    if (message.clientCreated === true) {
+      await syncClientCreatedMessage(roomRef, roomData, messageId, message);
+    }
+
     await sendPushForMessage(roomId, messageId, roomData, message);
+  },
+);
+
+export const onMessageUpdated = onDocumentUpdated(
+  {
+    document: "rooms/{roomId}/messages/{messageId}",
+    secrets: [deepgramApiKey],
+    timeoutSeconds: 180,
+    memory: "512MiB",
+  },
+  async (event) => {
+    const before = event.data?.before.data() as MessageData | undefined;
+    const after = event.data?.after.data() as MessageData | undefined;
+    if (!after || after.kind !== "voice" || after.deletedAt) {
+      return;
+    }
+    if (after.sttStatus !== "processing" || voiceTranscriptFromMessage(after)) {
+      return;
+    }
+    const audioPath = optionalString(after.audioPath);
+    if (!audioPath.startsWith("voice_messages/")) {
+      return;
+    }
+    const previousAudioPath = optionalString(before?.audioPath);
+    const previousStatus = before?.sttStatus;
+    if (previousAudioPath === audioPath && previousStatus === "processing") {
+      return;
+    }
+
+    const roomRef = db.collection("rooms").doc(event.params.roomId);
+    await transcribePendingMessage(roomRef, event.params.messageId, after);
   },
 );
 
@@ -2221,7 +3209,11 @@ export const deliverCalendarReminders = onSchedule(
     const eventsSnapshot = await db
       .collectionGroup("calendarEvents")
       .where("status", "==", "active")
-      .where("startAt", ">=", admin.firestore.Timestamp.fromDate(dueWindowStart))
+      .where(
+        "startAt",
+        ">=",
+        admin.firestore.Timestamp.fromDate(dueWindowStart),
+      )
       .where("startAt", "<=", admin.firestore.Timestamp.fromDate(lookupEnd))
       .orderBy("startAt", "asc")
       .limit(200)
@@ -2267,11 +3259,11 @@ export const deliverCalendarReminders = onSchedule(
       }
 
       const timezone = safeCalendarTimezone(userData.calendarTimezone);
-      const title = optionalString(event.title) || "일정";
+      const title = optionalString(event.title) || "\uC77C\uC815";
       await sendPushToUser(
         uid,
-        "일정 알림",
-        `${title} · ${formatCalendarPushTime(startAt, timezone)} 시작`,
+        "\uC77C\uC815 \uC54C\uB9BC",
+        `${title} \u00B7 ${formatCalendarPushTime(startAt, timezone)} \uC2DC\uC791`,
         {
           type: "calendarReminder",
           eventId: doc.id,
@@ -2330,21 +3322,15 @@ export const deliverMorningBriefings = onSchedule(
           const event = eventDoc.data() as CalendarEventData;
           return {
             id: eventDoc.id,
-            title: optionalString(event.title) || "일정",
+            title: optionalString(event.title) || "\uC77C\uC815",
             startAt: timestampToDate(event.startAt),
           };
         })
         .filter(
-          (
-            event,
-          ): event is { id: string; title: string; startAt: Date } =>
+          (event): event is { id: string; title: string; startAt: Date } =>
             event.startAt != null,
         );
-      const briefingText = calendarMorningBriefingText(
-        events,
-        timezone,
-        now,
-      );
+      const briefingText = calendarMorningBriefingText(events, timezone, now);
 
       const deliveryRef = userDoc.ref
         .collection("calendarNotificationDeliveries")
@@ -2360,7 +3346,7 @@ export const deliverMorningBriefings = onSchedule(
 
       await sendPushToUser(
         userDoc.id,
-        "오늘의 일정 브리핑",
+        "\uC624\uB298\uC758 \uC77C\uC815 \uBE0C\uB9AC\uD551",
         truncateNotificationBody(briefingText),
         {
           type: "calendarMorningBriefing",
@@ -2437,23 +3423,201 @@ export const rollupUsageAndCost = onSchedule("every 1 hours", async () => {
   );
 });
 
+export const recoverStaleVoiceMessages = onSchedule(
+  {
+    schedule: "every 5 minutes",
+    secrets: [deepgramApiKey],
+  },
+  async () => {
+    const staleBefore = Date.now() - STALE_PENDING_VOICE_MS;
+    const roomsSnapshot = await db
+      .collection("rooms")
+      .orderBy("updatedAt", "desc")
+      .limit(100)
+      .get();
+    let inspected = 0;
+    let recovered = 0;
+    let failed = 0;
+
+    for (const roomDoc of roomsSnapshot.docs) {
+      const sendingSnapshot = await roomDoc.ref
+        .collection("messages")
+        .where("deliveryStatus", "==", "sending")
+        .limit(25)
+        .get();
+      const processingSnapshot = await roomDoc.ref
+        .collection("messages")
+        .where("sttStatus", "==", "processing")
+        .limit(25)
+        .get();
+      const failedSnapshot = await roomDoc.ref
+        .collection("messages")
+        .where("sttStatus", "==", "failed")
+        .limit(100)
+        .get();
+      const recentSnapshot = await roomDoc.ref
+        .collection("messages")
+        .orderBy("createdAt", "desc")
+        .limit(100)
+        .get();
+      const messageDocs = new Map<
+        string,
+        admin.firestore.QueryDocumentSnapshot
+      >();
+      for (const doc of recentSnapshot.docs) {
+        messageDocs.set(doc.id, doc);
+      }
+      for (const doc of sendingSnapshot.docs) {
+        if (!messageDocs.has(doc.id)) {
+          messageDocs.set(doc.id, doc);
+        }
+      }
+      for (const doc of processingSnapshot.docs) {
+        if (!messageDocs.has(doc.id)) {
+          messageDocs.set(doc.id, doc);
+        }
+      }
+      for (const doc of failedSnapshot.docs) {
+        if (!messageDocs.has(doc.id)) {
+          messageDocs.set(doc.id, doc);
+        }
+      }
+      for (const messageDoc of messageDocs.values()) {
+        if (inspected >= 20) {
+          break;
+        }
+        const message = messageDoc.data() as MessageData | undefined;
+        if (!message || message.kind !== "voice") {
+          continue;
+        }
+        const deliveryStatus = message.deliveryStatus || "sent";
+        const audioPath = optionalString(message.audioPath);
+        const hasRecoverableAudioPath = audioPath.startsWith("voice_messages/");
+        const hasVoiceTranscript = !!voiceTranscriptFromMessage(message);
+        const needsDeliveryRecovery = deliveryStatus === "sending";
+        const needsSttRecovery =
+          message.sttStatus === "processing" && !hasVoiceTranscript;
+        const retryCount = numberValue(message.sttRetryCount, 0);
+        const needsFailedSttRecovery =
+          message.sttStatus === "failed" &&
+          !hasVoiceTranscript &&
+          retryCount < STT_FAILED_RECOVERY_MAX_ATTEMPTS &&
+          isRetryableSttFailure(optionalString(message.errorCode));
+        const needsBlankDeliveredRecovery =
+          deliveryStatus === "sent" &&
+          hasRecoverableAudioPath &&
+          !hasVoiceTranscript &&
+          (message.sttStatus === "completed" ||
+            message.sttStatus === "none" ||
+            !message.sttStatus);
+        if (
+          !needsDeliveryRecovery &&
+          !needsSttRecovery &&
+          !needsFailedSttRecovery &&
+          !needsBlankDeliveredRecovery
+        ) {
+          continue;
+        }
+        const referenceTime =
+          timestampToDate(message.updatedAt) ||
+          timestampToDate(message.createdAt);
+        if (referenceTime && referenceTime.getTime() > staleBefore) {
+          continue;
+        }
+        inspected += 1;
+        if (hasRecoverableAudioPath) {
+          await transcribePendingMessage(roomDoc.ref, messageDoc.id, message);
+          recovered += 1;
+          continue;
+        }
+        await failPendingVoiceMessage(
+          roomDoc.ref,
+          messageDoc.id,
+          message,
+          audioPath ? "stale_invalid_audio_path" : "stale_missing_audio_path",
+        );
+        failed += 1;
+      }
+    }
+
+    logger.info("recoverStaleVoiceMessages completed", {
+      inspected,
+      recovered,
+      failed,
+    });
+  },
+);
+
 async function transcribePendingMessage(
   roomRef: admin.firestore.DocumentReference,
   messageId: string,
   message: MessageData,
 ) {
   try {
+    const messageRef = roomRef.collection("messages").doc(messageId);
+    const latestSnapshot = await messageRef.get();
+    const latestMessage = latestSnapshot.data() as MessageData | undefined;
+    if (!latestMessage || latestMessage.kind !== "voice") {
+      return;
+    }
+    const latestTranscript = voiceTranscriptFromMessage(latestMessage);
+    if (latestTranscript) {
+      return;
+    }
+    const latestAudioPath = optionalString(latestMessage.audioPath);
+    if (!latestAudioPath.startsWith("voice_messages/")) {
+      return;
+    }
+    message = latestMessage;
+    const language = message.language || "ko";
     const transcription = await transcribeStorageAudio(
-      message.audioPath || "",
-      message.language || "ko",
+      latestAudioPath,
+      language,
     );
-    await roomRef.collection("messages").doc(messageId).set(
+    const transcript = sanitizeVoiceTranscriptForLanguage(
+      transcription.transcript,
+      language,
+    );
+    const beforeWriteSnapshot = await messageRef.get();
+    const beforeWriteMessage = beforeWriteSnapshot.data() as
+      | MessageData
+      | undefined;
+    const beforeWriteTranscript =
+      voiceTranscriptFromMessage(beforeWriteMessage);
+    if (!transcript && beforeWriteTranscript) {
+      return;
+    }
+    const previousRetryCount = numberValue(
+      beforeWriteMessage?.sttRetryCount,
+      0,
+    );
+    const selectedTranscript = preferBetterVoiceTranscript(
+      transcript,
+      beforeWriteTranscript,
+    );
+    const hasTranscript = !!selectedTranscript;
+    const nextRetryCount = hasTranscript ? 0 : previousRetryCount + 1;
+    const keepProcessing =
+      !hasTranscript && nextRetryCount <= DEEPGRAM_EMPTY_TRANSCRIPT_RETRY_COUNT;
+    await messageRef.set(
       {
-        text: transcription.transcript,
-        transcript: transcription.transcript,
+        text: selectedTranscript,
+        transcript: selectedTranscript,
         audioHash: transcription.audioHash,
         sttCacheHit: transcription.cacheHit,
-        sttStatus: "completed",
+        sttStatus: hasTranscript
+          ? "completed"
+          : keepProcessing
+            ? "processing"
+            : "failed",
+        errorCode: hasTranscript ? null : "stt_empty_transcript",
+        sttRetryCount: hasTranscript
+          ? FieldValue.delete()
+          : FieldValue.increment(1),
+        lastSttRetryAt: hasTranscript
+          ? FieldValue.delete()
+          : FieldValue.serverTimestamp(),
+        deliveryStatus: "sent",
         updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: true },
@@ -2463,7 +3627,9 @@ async function transcribePendingMessage(
         lastMessage: {
           messageId,
           kind: "voice",
-          preview: transcription.transcript || "새 음성 메시지",
+          preview:
+            selectedTranscript ||
+            (keepProcessing ? "\uC74C\uC131 \uBCC0\uD658 \uC911..." : "\uC74C\uC131 \uBCC0\uD658 \uC2E4\uD328"),
           senderId: message.senderId,
           createdAt: FieldValue.serverTimestamp(),
         },
@@ -2473,18 +3639,64 @@ async function transcribePendingMessage(
     );
   } catch (error) {
     logger.error("transcribePendingMessage failed", { messageId, error });
+    const code = errorCode(error);
+    const transient = isTransientSttError(code);
     await roomRef
       .collection("messages")
       .doc(messageId)
       .set(
         {
-          sttStatus: "failed",
-          errorCode: errorCode(error),
+          sttStatus: transient ? "processing" : "failed",
+          errorCode: code,
+          sttRetryCount: FieldValue.increment(1),
+          lastSttRetryAt: FieldValue.serverTimestamp(),
+          deliveryStatus: "sent",
           updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true },
       );
   }
+}
+
+async function failPendingVoiceMessage(
+  roomRef: admin.firestore.DocumentReference,
+  messageId: string,
+  message: MessageData,
+  code: string,
+) {
+  const now = FieldValue.serverTimestamp();
+  const roomSnapshot = await roomRef.get();
+  const room = roomSnapshot.data() as RoomData | undefined;
+  const shouldUpdateLastMessage =
+    room?.lastMessage?.messageId === messageId || !room?.lastMessage?.messageId;
+  const batch = db.batch();
+  batch.set(
+    roomRef.collection("messages").doc(messageId),
+    {
+      sttStatus: "failed",
+      errorCode: code,
+      deliveryStatus: "failed",
+      updatedAt: now,
+    },
+    { merge: true },
+  );
+  if (shouldUpdateLastMessage) {
+    batch.set(
+      roomRef,
+      {
+        lastMessage: {
+          messageId,
+          kind: "voice",
+          preview: "\uC74C\uC131 \uBA54\uC2DC\uC9C0 \uC804\uC1A1 \uC2E4\uD328",
+          senderId: message.senderId,
+          createdAt: message.createdAt || now,
+        },
+        updatedAt: now,
+      },
+      { merge: true },
+    );
+  }
+  await batch.commit();
 }
 
 async function sendPushForMessage(
@@ -2532,7 +3744,7 @@ async function sendPushForMessage(
     const response = await messaging.sendEachForMulticast({
       tokens: batch.map((item) => item.token),
       notification: {
-        title: room.title || "Voice Messenger",
+        title: room.title || "Verbal",
         body,
       },
       data: {
@@ -2668,6 +3880,64 @@ async function createMessage(
     );
   }
   await batch.commit();
+}
+
+async function syncClientCreatedMessage(
+  roomRef: admin.firestore.DocumentReference,
+  room: RoomData,
+  messageId: string,
+  message: MessageData,
+) {
+  const latestMessageSnapshot = await roomRef
+    .collection("messages")
+    .doc(messageId)
+    .get();
+  const latestMessage =
+    (latestMessageSnapshot.data() as MessageData | undefined) || message;
+  if (
+    (latestMessage.kind !== "text" && latestMessage.kind !== "voice") ||
+    latestMessage.deletedAt
+  ) {
+    return;
+  }
+  const now = FieldValue.serverTimestamp();
+  const preview = messagePreview(latestMessage);
+  const batch = db.batch();
+  batch.set(
+    roomRef,
+    {
+      lastMessage: {
+        messageId,
+        kind: latestMessage.kind,
+        preview,
+        senderId: latestMessage.senderId,
+        createdAt: latestMessage.createdAt || message.createdAt || now,
+      },
+      updatedAt: now,
+    },
+    { merge: true },
+  );
+  for (const participantId of room.participantIds) {
+    batch.set(
+      roomRef.collection("members").doc(participantId),
+      participantId === latestMessage.senderId
+        ? {
+            lastReadAt: now,
+            lastReadMessageId: messageId,
+            unreadCount: 0,
+            updatedAt: now,
+          }
+        : {
+            unreadCount: FieldValue.increment(1),
+            updatedAt: now,
+          },
+      { merge: true },
+    );
+  }
+  await batch.commit();
+  if (latestMessage.kind === "text") {
+    await recordDailyUsage(latestMessage.senderId, { textCount: 1 });
+  }
 }
 
 async function deliverScheduledMessage(
@@ -3005,7 +4275,7 @@ function proposalSnapshot(
 }
 
 function calendarProposalPreview(title: string) {
-  return `일정 제안: ${title}`.slice(0, 120);
+  return `\uC77C\uC815 \uC81C\uC548: ${title}`.slice(0, 120);
 }
 
 function calendarEventFromProposal(
@@ -3121,7 +4391,8 @@ function holidayCountryCodeValue(value: unknown) {
     return "KR";
   }
   const code = value.trim();
-  const normalized = code.toLowerCase() === "none" ? "none" : code.toUpperCase();
+  const normalized =
+    code.toLowerCase() === "none" ? "none" : code.toUpperCase();
   if (!["none", "KR", "US", "JP", "CN"].includes(normalized)) {
     throw new HttpsError(
       "invalid-argument",
@@ -3155,14 +4426,17 @@ function calendarMorningBriefingText(
   now = new Date(),
 ) {
   const parts = timeZoneParts(now, timezone);
-  const label = `${parts.month}월 ${parts.day}일`;
+  const label = `${parts.month}\uC6D4 ${parts.day}\uC77C`;
   if (events.length === 0) {
-    return `좋은 아침입니다. 오늘 ${label} 등록된 일정은 없습니다.`;
+    return `\uC88B\uC740 \uC544\uCE68\uC785\uB2C8\uB2E4. \uC624\uB298 ${label} \uB4F1\uB85D\uB41C \uC77C\uC815\uC740 \uC5C6\uC2B5\uB2C8\uB2E4.`;
   }
   const items = events
-    .map((event) => `${formatCalendarTime(event.startAt, timezone)} ${event.title}`)
+    .map(
+      (event) =>
+        `${formatCalendarTime(event.startAt, timezone)} ${event.title}`,
+    )
     .join(". ");
-  return `좋은 아침입니다. 오늘 ${label} 일정은 총 ${events.length}개입니다. ${items}.`;
+  return `\uC88B\uC740 \uC544\uCE68\uC785\uB2C8\uB2E4. \uC624\uB298 ${label} \uC77C\uC815\uC740 \uCD1D ${events.length}\uAC1C\uC785\uB2C8\uB2E4. ${items}.`;
 }
 
 function truncateNotificationBody(text: string) {
@@ -3180,12 +4454,12 @@ function formatCalendarPushTime(date: Date, timezone: string) {
 
 function formatCalendarTime(date: Date, timezone: string) {
   const parts = timeZoneParts(date, timezone);
-  const period = parts.hour < 12 ? "오전" : "오후";
+  const period = parts.hour < 12 ? "\uC624\uC804" : "\uC624\uD6C4";
   const hour = parts.hour % 12 === 0 ? 12 : parts.hour % 12;
   if (parts.minute === 0) {
-    return `${period} ${hour}시`;
+    return `${period} ${hour}\uC2DC`;
   }
-  return `${period} ${hour}시 ${parts.minute}분`;
+  return `${period} ${hour}\uC2DC ${parts.minute}\uBD84`;
 }
 
 function timeZoneDateKey(date: Date, timezone: string) {
@@ -3228,7 +4502,9 @@ function localDateTimeToUtcDate(
   second: number,
   timezone: string,
 ) {
-  const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  const utcGuess = new Date(
+    Date.UTC(year, month - 1, day, hour, minute, second),
+  );
   const firstOffset = timeZoneOffsetMillis(utcGuess, timezone);
   const firstDate = new Date(utcGuess.getTime() - firstOffset);
   const secondOffset = timeZoneOffsetMillis(firstDate, timezone);
@@ -3395,9 +4671,12 @@ async function latestVisibleMessage(
 
 function messagePreview(message: MessageData) {
   if (message.deletedAt) {
-    return "삭제된 메시지입니다.";
+    return "\uC0AD\uC81C\uB41C \uBA54\uC2DC\uC9C0\uC785\uB2C8\uB2E4.";
   }
-  const text = (message.text || message.transcript || "").trim();
+  const text =
+    message.kind === "voice"
+      ? voiceTranscriptFromMessage(message)
+      : (message.text || message.transcript || "").trim();
   if (text) {
     return text.slice(0, 120);
   }
@@ -3405,9 +4684,146 @@ function messagePreview(message: MessageData) {
     return attachmentPreview(message.attachment).slice(0, 120);
   }
   if (message.kind === "voice") {
-    return "\uC0C8 \uC74C\uC131 \uBA54\uC2DC\uC9C0";
+    if (message.sttStatus === "processing") {
+      return "\uC74C\uC131 \uBCC0\uD658 \uC911...";
+    }
+    if (message.sttStatus === "failed") {
+      return "\uC74C\uC131 \uBCC0\uD658 \uC2E4\uD328";
+    }
+    return "\uC74C\uC131 \uBCC0\uD658 \uC2E4\uD328";
   }
   return "\uC0C8 \uBA54\uC2DC\uC9C0";
+}
+function sanitizeVoiceTranscript(value: unknown): string {
+  const text = optionalString(value).slice(0, 4000);
+  if (!text) {
+    return "";
+  }
+  const placeholders = new Set([
+    "\uC74C\uC131 \uBA54\uC2DC\uC9C0",
+    "\uC0C8 \uC74C\uC131 \uBA54\uC2DC\uC9C0",
+    "Voice message",
+    "\uC74C\uC131 \uBCC0\uD658 \uC911...",
+    "\uC74C\uC131 \uBCC0\uD658 \uB300\uAE30 \uC911...",
+    "\uC74C\uC131 \uBCC0\uD658 \uC2E4\uD328",
+    "\uC74C\uC131 \uBCC0\uD658\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
+    "\uC74C\uC131 \uBCC0\uD658 \uACB0\uACFC \uC5C6\uC74C",
+    "\uC74C\uC131 \uBCC0\uD658 \uACB0\uACFC\uAC00 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.",
+  ]);
+  const mojibakeSignals = [
+    "\uFFFD",
+    "???",
+    "\u7650",
+    "\u7B4C",
+    "\u56A5",
+    "\u91CE",
+    "\u63F6",
+    "\u69AE",
+    "\u63F4",
+    "\u6FE1",
+    "\u5A9B",
+  ];
+  const cleanLines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line)
+    .filter((line) => !placeholders.has(line))
+    .filter((line) => {
+      const hasLongQuestionRun = /\?{3,}/.test(line) && line.length > 12;
+      return (
+        !hasLongQuestionRun &&
+        !mojibakeSignals.some((signal) => line.includes(signal))
+      );
+    });
+  return cleanLines.join("\n").trim();
+}
+function voiceTranscriptFromMessage(message: MessageData | undefined): string {
+  return (
+    sanitizeVoiceTranscript(message?.transcript) ||
+    sanitizeVoiceTranscript(message?.text)
+  );
+}
+
+function preferBetterVoiceTranscript(
+  candidate: string | undefined | null,
+  existing: string | undefined | null,
+): string {
+  const next = sanitizeVoiceTranscript(candidate);
+  const current = sanitizeVoiceTranscript(existing);
+  if (isBetterVoiceTranscriptCandidate(next, current)) {
+    return next;
+  }
+  return current;
+}
+
+function isBetterVoiceTranscriptCandidate(
+  candidate: string | undefined | null,
+  existing: string | undefined | null,
+): boolean {
+  const next = sanitizeVoiceTranscript(candidate);
+  if (!next) {
+    return false;
+  }
+  const current = sanitizeVoiceTranscript(existing);
+  if (!current) {
+    return true;
+  }
+  const nextCompact = compactVoiceTranscript(next);
+  const currentCompact = compactVoiceTranscript(current);
+  if (!nextCompact) {
+    return false;
+  }
+  if (!currentCompact) {
+    return true;
+  }
+  if (nextCompact === currentCompact) {
+    return false;
+  }
+  if (
+    currentCompact.includes(nextCompact) &&
+    currentCompact.length >= nextCompact.length
+  ) {
+    return false;
+  }
+  if (
+    nextCompact.includes(currentCompact) &&
+    nextCompact.length > currentCompact.length
+  ) {
+    return true;
+  }
+  return nextCompact.length > currentCompact.length;
+}
+
+function compactVoiceTranscript(value: string): string {
+  return value.replace(/[\s\p{P}\p{S}]+/gu, "").toLowerCase();
+}
+
+function sanitizeVoiceTranscriptForLanguage(
+  value: unknown,
+  language: string,
+): string {
+  const transcript = sanitizeVoiceTranscript(value);
+  if (!transcript) {
+    return "";
+  }
+  const normalizedLanguage = normalizeDeepgramLanguage(language);
+  if (
+    normalizedLanguage === "ko" &&
+    !/[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/u.test(transcript)
+  ) {
+    logger.warn("Accepted non-Korean transcript for Korean voice message", {
+      transcriptPreview: transcript.slice(0, 80),
+      language,
+    });
+  }
+  return transcript;
+}
+
+function normalizeSecretValue(value: unknown): string {
+  return optionalString(value)
+    .trim()
+    .replace(/^['"]|['"]$/g, "")
+    .replace(/[\r\n\t ]+/g, "");
 }
 
 async function transcribeStorageAudio(
@@ -3421,70 +4837,32 @@ async function transcribeStorageAudio(
   audioPath: string,
   language = "ko",
 ): Promise<TranscriptionResult> {
-  const apiKey = process.env.DEEPGRAM_API_KEY || deepgramApiKey.value();
+  const apiKey = normalizeSecretValue(
+    process.env.DEEPGRAM_API_KEY || deepgramApiKey.value(),
+  );
   if (!apiKey) {
     throw new HttpsError(
       "failed-precondition",
       "DEEPGRAM_API_KEY is not configured.",
     );
   }
-  const model = process.env.DEEPGRAM_MODEL || "nova-3";
+  const model = deepgramPrerecordedModel(language);
+  const audioExtension = path.extname(audioPath).toLowerCase() || ".audio";
   const tempPath = path.join(
     os.tmpdir(),
-    `${path.basename(audioPath)}-${Date.now()}.m4a`,
+    `${path.basename(audioPath)}-${Date.now()}${audioExtension}`,
   );
   const downloadedAudio = await downloadStorageObject(audioPath);
   await fs.promises.writeFile(tempPath, downloadedAudio);
   try {
     const audioBytes = await fs.promises.readFile(tempPath);
-    const audioHash = crypto
-      .createHash("sha256")
-      .update(audioBytes)
-      .digest("hex");
-    const normalizedLanguage = normalizeDeepgramLanguage(language);
-    const cacheRef = db
-      .collection("transcriptionCache")
-      .doc(`${normalizedLanguage.replace(/[^a-zA-Z0-9-]/g, "_")}_${audioHash}`);
-    const cached = await cacheRef.get();
-    const cachedTranscript = cached.data()?.transcript;
-    if (typeof cachedTranscript === "string" && cachedTranscript.trim()) {
-      await cacheRef.set(
-        {
-          hitCount: FieldValue.increment(1),
-          lastUsedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true },
-      );
-      return {
-        transcript: cachedTranscript.trim(),
-        audioHash,
-        cacheHit: true,
-      };
-    }
-    const transcript = await transcribeAudioBytesWithDeepgram({
+    return transcribeAudioBytesCached({
       apiKey,
       audioBytes,
-      language: normalizedLanguage,
+      language: normalizeDeepgramLanguage(language),
       model,
       contentType: contentTypeForAudioPath(audioPath),
     });
-    await cacheRef.set(
-      {
-        audioHash,
-        language: normalizedLanguage,
-        model,
-        transcript,
-        hitCount: 0,
-        createdAt: FieldValue.serverTimestamp(),
-        lastUsedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true },
-    );
-    return {
-      transcript,
-      audioHash,
-      cacheHit: false,
-    };
   } finally {
     fs.promises.unlink(tempPath).catch(() => undefined);
   }
@@ -3494,6 +4872,327 @@ interface TranscriptionResult {
   transcript: string;
   audioHash: string;
   cacheHit: boolean;
+  model: string;
+}
+
+async function transcribeAudioBytesCached(options: {
+  apiKey: string;
+  audioBytes: Buffer;
+  language: string;
+  model: string;
+  contentType: string;
+}): Promise<TranscriptionResult> {
+  const audioHash = crypto
+    .createHash("sha256")
+    .update(options.audioBytes)
+    .digest("hex");
+  const normalizedLanguage = normalizeDeepgramLanguage(options.language);
+  const primaryModel = options.model || "nova-3";
+  const fallbackModel = deepgramFallbackModel(normalizedLanguage, primaryModel);
+  const cacheModelKey = fallbackModel
+    ? `${primaryModel}_${fallbackModel}`
+    : primaryModel;
+  const cacheRef = db
+    .collection("transcriptionCache")
+    .doc(
+      `${normalizedLanguage.replace(/[^a-zA-Z0-9-]/g, "_")}_${cacheModelKey.replace(
+        /[^a-zA-Z0-9-]/g,
+        "_",
+      )}_${audioHash}`,
+    );
+  const cached = await cacheRef.get();
+  const cachedTranscript = cached.data()?.transcript;
+  if (typeof cachedTranscript === "string" && cachedTranscript.trim()) {
+    await cacheRef.set(
+      {
+        hitCount: FieldValue.increment(1),
+        lastUsedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    return {
+      transcript: cachedTranscript.trim(),
+      audioHash,
+      cacheHit: true,
+      model:
+        typeof cached.data()?.model === "string"
+          ? (cached.data()?.model as string)
+          : primaryModel,
+    };
+  }
+  let modelUsed = primaryModel;
+  let transcript = "";
+  if (
+    DEEPGRAM_PARALLEL_KO_MODEL_RACE &&
+    normalizedLanguage.startsWith("ko") &&
+    fallbackModel
+  ) {
+    const raced = await transcribeAudioBytesWithDeepgramModelRace({
+      apiKey: options.apiKey,
+      audioBytes: options.audioBytes,
+      language: normalizedLanguage,
+      contentType: options.contentType,
+      models: [primaryModel, fallbackModel],
+    });
+    transcript = raced.transcript;
+    modelUsed = raced.model;
+  } else {
+    transcript = await transcribeAudioBytesWithDeepgramWithRetry({
+      apiKey: options.apiKey,
+      audioBytes: options.audioBytes,
+      language: normalizedLanguage,
+      model: primaryModel,
+      contentType: options.contentType,
+    });
+    if (!transcript && fallbackModel) {
+      const fallbackTranscript =
+        await transcribeAudioBytesWithDeepgramWithRetry({
+          apiKey: options.apiKey,
+          audioBytes: options.audioBytes,
+          language: normalizedLanguage,
+          model: fallbackModel,
+          contentType: options.contentType,
+        });
+      if (fallbackTranscript) {
+        transcript = fallbackTranscript;
+        modelUsed = fallbackModel;
+        logger.info("Deepgram fallback transcription succeeded", {
+          language: normalizedLanguage,
+          primaryModel,
+          fallbackModel,
+          transcriptLength: transcript.length,
+        });
+      } else {
+        logger.warn(
+          "Deepgram fallback transcription returned empty transcript",
+          {
+            language: normalizedLanguage,
+            primaryModel,
+            fallbackModel,
+          },
+        );
+      }
+    }
+  }
+  if (!transcript && DEEPGRAM_DETECT_LANGUAGE_FALLBACK) {
+    const detectModel = deepgramDetectLanguageModel(primaryModel);
+    const detectedTranscript = await transcribeAudioBytesWithDeepgramWithRetry({
+      apiKey: options.apiKey,
+      audioBytes: options.audioBytes,
+      language: normalizedLanguage,
+      model: detectModel,
+      contentType: options.contentType,
+      detectLanguage: true,
+    });
+    if (detectedTranscript) {
+      transcript = detectedTranscript;
+      modelUsed = `${detectModel}:detect_language`;
+      logger.info("Deepgram detect-language fallback succeeded", {
+        language: normalizedLanguage,
+        primaryModel,
+        detectModel,
+        transcriptLength: transcript.length,
+        audioBytes: options.audioBytes.length,
+      });
+    } else {
+      logger.warn("Deepgram detect-language fallback returned empty transcript", {
+        language: normalizedLanguage,
+        primaryModel,
+        detectModel,
+        audioBytes: options.audioBytes.length,
+      });
+    }
+  }
+  if (transcript.trim()) {
+    await cacheRef.set(
+      {
+        audioHash,
+        language: normalizedLanguage,
+        model: modelUsed,
+        primaryModel,
+        fallbackModel: fallbackModel || null,
+        transcript,
+        hitCount: 0,
+        createdAt: FieldValue.serverTimestamp(),
+        lastUsedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+  }
+  return {
+    transcript,
+    audioHash,
+    cacheHit: false,
+    model: modelUsed,
+  };
+}
+
+async function transcribeAudioBytesWithDeepgramModelRace(options: {
+  apiKey: string;
+  audioBytes: Buffer;
+  language: string;
+  contentType: string;
+  models: string[];
+}): Promise<{ transcript: string; model: string }> {
+  const models = Array.from(
+    new Set(options.models.map((model) => model.trim()).filter(Boolean)),
+  );
+  const fallbackModel = models[0] || "nova-3";
+  if (models.length <= 1) {
+    return {
+      transcript: await transcribeAudioBytesWithDeepgramWithRetry({
+        apiKey: options.apiKey,
+        audioBytes: options.audioBytes,
+        language: options.language,
+        model: fallbackModel,
+        contentType: options.contentType,
+      }),
+      model: fallbackModel,
+    };
+  }
+
+  logger.info("Deepgram Korean model race started", {
+    language: options.language,
+    models,
+    audioBytes: options.audioBytes.length,
+  });
+
+  return new Promise((resolve) => {
+    let settled = 0;
+    let resolved = false;
+
+    const finishEmptyIfDone = () => {
+      if (!resolved && settled >= models.length) {
+        resolved = true;
+        logger.warn("Deepgram Korean model race returned empty transcript", {
+          language: options.language,
+          models,
+          audioBytes: options.audioBytes.length,
+        });
+        resolve({ transcript: "", model: fallbackModel });
+      }
+    };
+
+    for (const model of models) {
+      transcribeAudioBytesWithDeepgramWithRetry({
+        apiKey: options.apiKey,
+        audioBytes: options.audioBytes,
+        language: options.language,
+        model,
+        contentType: options.contentType,
+      })
+        .then((transcript) => {
+          settled += 1;
+          if (!resolved && transcript) {
+            resolved = true;
+            logger.info("Deepgram Korean model race completed", {
+              language: options.language,
+              model,
+              transcriptLength: transcript.length,
+              audioBytes: options.audioBytes.length,
+            });
+            resolve({ transcript, model });
+            return;
+          }
+          finishEmptyIfDone();
+        })
+        .catch((error) => {
+          settled += 1;
+          logger.warn("Deepgram Korean model race candidate failed", {
+            language: options.language,
+            model,
+            error: errorDetails(error),
+          });
+          finishEmptyIfDone();
+        });
+    }
+  });
+}
+
+async function transcribeAudioBytesWithDeepgramWithRetry(options: {
+  apiKey: string;
+  audioBytes: Buffer;
+  language: string;
+  model: string;
+  contentType: string;
+  detectLanguage?: boolean;
+}) {
+  let transcript = "";
+  for (
+    let attempt = 0;
+    attempt <= DEEPGRAM_EMPTY_TRANSCRIPT_RETRY_COUNT;
+    attempt += 1
+  ) {
+    transcript = await transcribeAudioBytesWithDeepgram(options);
+    if (transcript) {
+      if (attempt > 0) {
+        logger.info("Deepgram empty transcript retry succeeded", {
+          model: options.model,
+          language: options.language,
+          detectLanguage: options.detectLanguage === true,
+          attempt,
+          audioBytes: options.audioBytes.length,
+        });
+      }
+      return transcript;
+    }
+    if (attempt < DEEPGRAM_EMPTY_TRANSCRIPT_RETRY_COUNT) {
+      logger.warn("Deepgram returned empty transcript; retrying", {
+        model: options.model,
+        language: options.language,
+        detectLanguage: options.detectLanguage === true,
+        attempt,
+        audioBytes: options.audioBytes.length,
+      });
+      if (DEEPGRAM_EMPTY_TRANSCRIPT_RETRY_DELAY_MS > 0) {
+        await sleepMs(DEEPGRAM_EMPTY_TRANSCRIPT_RETRY_DELAY_MS * (attempt + 1));
+      }
+    }
+  }
+  return transcript;
+}
+
+function deepgramDetectLanguageModel(primaryModel: string) {
+  const configured = (process.env.DEEPGRAM_DETECT_LANGUAGE_MODEL || "").trim();
+  if (configured) {
+    return configured;
+  }
+  const normalized = primaryModel.trim().toLowerCase();
+  if (!normalized || normalized === "nova-3") {
+    return "nova-3-general";
+  }
+  return primaryModel;
+}
+
+function deepgramFallbackModel(language: string, primaryModel: string) {
+  const configured = (process.env.DEEPGRAM_FALLBACK_MODEL || "").trim();
+  const fallback = configured || (language.startsWith("ko") ? "whisper" : "");
+  if (!fallback) {
+    return "";
+  }
+  return fallback.toLowerCase() === primaryModel.toLowerCase() ? "" : fallback;
+}
+
+function deepgramPrerecordedModel(language: string) {
+  const normalizedLanguage = normalizeDeepgramLanguage(language);
+  const explicit = (
+    process.env.DEEPGRAM_PRERECORDED_MODEL ||
+    process.env.DEEPGRAM_BATCH_MODEL ||
+    ""
+  ).trim();
+  if (explicit) {
+    return explicit;
+  }
+  if (normalizedLanguage.startsWith("ko")) {
+    return (
+      (
+        process.env.DEEPGRAM_KO_MODEL ||
+        process.env.DEEPGRAM_MODEL ||
+        "nova-3"
+      ).trim() || "nova-3"
+    );
+  }
+  return (process.env.DEEPGRAM_MODEL || "nova-3").trim() || "nova-3";
 }
 
 function errorDetails(error: unknown) {
@@ -3513,9 +5212,7 @@ function errorDetails(error: unknown) {
     statusText:
       typeof value?.statusText === "string" ? value.statusText : undefined,
     stack:
-      typeof value?.stack === "string"
-        ? value.stack.slice(0, 1200)
-        : undefined,
+      typeof value?.stack === "string" ? value.stack.slice(0, 1200) : undefined,
   };
 }
 
@@ -3525,16 +5222,44 @@ async function transcribeAudioBytesWithDeepgram(options: {
   language: string;
   model: string;
   contentType: string;
+  detectLanguage?: boolean;
 }) {
-  const url = deepgramListenUrl(options.model, options.language);
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Token ${options.apiKey}`,
-      "Content-Type": options.contentType,
-    },
-    body: options.audioBytes,
+  const url = deepgramListenUrl(options.model, options.language, {
+    detectLanguage: options.detectLanguage === true,
   });
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    DEEPGRAM_REQUEST_TIMEOUT_MS,
+  );
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Token ${options.apiKey}`,
+        "Content-Type": options.contentType,
+      },
+      body: options.audioBytes,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    const details = errorDetails(error);
+    logger.error("Deepgram transcription request failed", {
+      model: options.model,
+      language: options.language,
+      detectLanguage: options.detectLanguage === true,
+      contentType: options.contentType,
+      audioBytes: options.audioBytes.length,
+      error: details,
+    });
+    throw new HttpsError(
+      details.name === "AbortError" ? "deadline-exceeded" : "unavailable",
+      "Deepgram transcription request failed.",
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const raw = await response.text();
   let payload: DeepgramTranscriptionResponse | undefined;
@@ -3556,13 +5281,18 @@ async function transcribeAudioBytesWithDeepgram(options: {
   const transcript =
     payload?.results?.channels?.[0]?.alternatives?.[0]?.transcript?.trim();
   if (typeof transcript !== "string") {
-    logger.error("Deepgram transcription response missing transcript", {
+    logger.warn("Deepgram transcription response missing transcript", {
       body: raw.slice(0, 1000),
     });
-    throw new HttpsError(
-      "internal",
-      "Deepgram transcription response was invalid.",
-    );
+    return "";
+  }
+  if (!transcript) {
+    logger.warn("Deepgram transcription returned empty transcript", {
+      model: options.model,
+      language: options.language,
+      detectLanguage: options.detectLanguage === true,
+      body: raw.slice(0, 1000),
+    });
   }
   return transcript;
 }
@@ -3577,26 +5307,99 @@ interface DeepgramTranscriptionResponse {
   };
 }
 
-function deepgramListenUrl(model: string, language: string) {
+function deepgramListenUrl(
+  model: string,
+  language: string,
+  options: { detectLanguage?: boolean } = {},
+) {
   const baseUrl =
     process.env.DEEPGRAM_API_URL || "https://api.deepgram.com/v1/listen";
   const url = new URL(baseUrl);
   url.searchParams.set("model", model || "nova-3");
-  url.searchParams.set("language", normalizeDeepgramLanguage(language));
+  if (options.detectLanguage === true) {
+    url.searchParams.set("detect_language", "true");
+  } else {
+    url.searchParams.set("language", normalizeDeepgramLanguage(language));
+  }
   url.searchParams.set(
     "smart_format",
     process.env.DEEPGRAM_SMART_FORMAT || "true",
   );
+  url.searchParams.set("punctuate", process.env.DEEPGRAM_PUNCTUATE || "true");
+  url.searchParams.set("numerals", process.env.DEEPGRAM_NUMERALS || "true");
   for (const keyterm of deepgramKeyterms()) {
     url.searchParams.append("keyterm", keyterm);
   }
   return url;
 }
 
+function deepgramStreamingListenUrl(model: string, language: string) {
+  const baseUrl =
+    process.env.DEEPGRAM_STREAMING_API_URL ||
+    "wss://api.deepgram.com/v1/listen";
+  const url = new URL(baseUrl);
+  url.searchParams.set("model", model);
+  url.searchParams.set("language", normalizeDeepgramLanguage(language));
+  url.searchParams.set("encoding", "linear16");
+  url.searchParams.set("sample_rate", "16000");
+  url.searchParams.set("channels", "1");
+  url.searchParams.set("interim_results", "true");
+  url.searchParams.set("no_delay", process.env.DEEPGRAM_NO_DELAY || "true");
+  url.searchParams.set(
+    "smart_format",
+    process.env.DEEPGRAM_STREAMING_SMART_FORMAT || "false",
+  );
+  url.searchParams.set(
+    "punctuate",
+    process.env.DEEPGRAM_STREAMING_PUNCTUATE || "false",
+  );
+  url.searchParams.set(
+    "numerals",
+    process.env.DEEPGRAM_STREAMING_NUMERALS || "false",
+  );
+  url.searchParams.set(
+    "endpointing",
+    normalizeDeepgramPositiveInteger(process.env.DEEPGRAM_ENDPOINTING_MS, "50"),
+  );
+  const utteranceEndMs = normalizeDeepgramUtteranceEndMs(
+    process.env.DEEPGRAM_UTTERANCE_END_MS,
+  );
+  if (utteranceEndMs) {
+    url.searchParams.set("utterance_end_ms", utteranceEndMs);
+  }
+  url.searchParams.set("vad_events", "true");
+  for (const keyterm of deepgramKeyterms()) {
+    url.searchParams.append("keyterm", keyterm);
+  }
+  return url.toString();
+}
+
+function normalizeDeepgramPositiveInteger(
+  value: string | undefined,
+  fallback: string,
+) {
+  const parsed = Number((value || "").trim());
+  return Number.isInteger(parsed) && parsed > 0 ? String(parsed) : fallback;
+}
+
+function normalizeDeepgramUtteranceEndMs(value: string | undefined) {
+  const parsed = Number((value || "").trim());
+  return Number.isInteger(parsed) && parsed >= 1000 ? String(parsed) : "";
+}
+
 function normalizeDeepgramLanguage(language: string) {
   const normalized = language.trim().toLowerCase();
-  if (!normalized || normalized === "ko" || normalized === "ko-kr") {
-    return process.env.DEEPGRAM_LANGUAGE || "ko-KR";
+  if (!normalized || normalized.startsWith("ko")) {
+    return "ko";
+  }
+  if (normalized.startsWith("en")) {
+    return "en";
+  }
+  if (normalized.startsWith("ja")) {
+    return "ja";
+  }
+  if (normalized.startsWith("zh")) {
+    return "zh";
   }
   return normalized;
 }
@@ -3648,7 +5451,9 @@ async function storageObjectExists(storagePath: string) {
 }
 
 async function downloadStorageObject(storagePath: string) {
-  const response = await storageFetch(`${storageObjectUrl(storagePath)}?alt=media`);
+  const response = await storageFetch(
+    `${storageObjectUrl(storagePath)}?alt=media`,
+  );
   if (!response.ok) {
     throw await storageResponseError(response);
   }
@@ -3750,7 +5555,7 @@ async function enforceActionCooldown(
     if (lastAt && Date.now() - lastAt.getTime() < cooldownMs) {
       throw new HttpsError(
         "resource-exhausted",
-        "요청이 너무 빠릅니다. 잠시 후 다시 시도해 주세요.",
+        "\uC694\uCCAD\uC774 \uB108\uBB34 \uBE60\uB985\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
       );
     }
     transaction.set(
@@ -3886,7 +5691,10 @@ function stringArray(value: unknown) {
 }
 
 function roomType(value: unknown): RoomType {
-  return value === "group" ? "group" : "direct";
+  if (value === "group" || value === "open") {
+    return value;
+  }
+  return "direct";
 }
 
 function sendModeValue(value: unknown): SendMode {
@@ -4165,12 +5973,12 @@ function translateForFreePreview(source: string, targetLanguage: string) {
     return source;
   }
   const dictionary: Record<string, string> = {
-    "오늘 저녁에 통화 가능해?": "Can we talk this evening?",
-    "응 8시 괜찮아": "Yes, 8 PM works for me.",
-    "삭제된 메시지입니다.": "This message was deleted.",
-    사진: "Photo",
-    파일: "File",
-    위치: "Location",
+    "\uC624\uB298 \uC800\uB141\uC5D0 \uD1B5\uD654 \uAC00\uB2A5\uD574?": "Can we talk this evening?",
+    "\uB124, 8\uC2DC \uAD1C\uCC2E\uC544\uC694.": "Yes, 8 PM works for me.",
+    "\uC0AD\uC81C\uB41C \uBA54\uC2DC\uC9C0\uC785\uB2C8\uB2E4.": "This message was deleted.",
+    "\uC0AC\uC9C4": "Photo",
+    "\uD30C\uC77C": "File",
+    "\uC704\uCE58": "Location",
   };
   return (
     dictionary[source.trim()] ||
@@ -4198,9 +6006,16 @@ function validateHandle(value: string) {
 }
 
 function defaultRoomTitle(type: RoomType, handles: string[]) {
-  return type === "group"
-    ? handles.map((handle) => `@${handle}`).join(", ")
-    : `@${handles[0]}`;
+  if (type === "direct") {
+    return `@${handles[0]}`;
+  }
+  if (type === "open") {
+    if (handles.length === 0) {
+      return "\uC624\uD508\uCC44\uD305";
+    }
+    return `\uC624\uD508\uCC44\uD305 \u00B7 ${handles.map((handle) => `@${handle}`).join(", ")}`;
+  }
+  return handles.map((handle) => `@${handle}`).join(", ");
 }
 
 function errorCode(error: unknown) {
@@ -4211,4 +6026,30 @@ function errorCode(error: unknown) {
     return error.name || "error";
   }
   return "unknown";
+}
+
+function sleepMs(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientSttError(code: string) {
+  const normalized = code.toLowerCase();
+  return (
+    normalized.includes("timeout") ||
+    normalized.includes("deadline") ||
+    normalized.includes("unavailable") ||
+    normalized.includes("fetch") ||
+    normalized.includes("network") ||
+    normalized === "aborterror" ||
+    normalized === "errorevent"
+  );
+}
+
+function isRetryableSttFailure(code: string) {
+  const normalized = code.toLowerCase();
+  return (
+    normalized === "stt_empty_transcript" ||
+    normalized === "inline_stt_empty_transcript" ||
+    isTransientSttError(normalized)
+  );
 }

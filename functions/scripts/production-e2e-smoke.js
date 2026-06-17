@@ -70,13 +70,23 @@ async function main() {
 
   await prepareUser(sender);
   await prepareUser(receiver);
+  const db = admin.firestore();
+
+  const friendResult = await callFunction(senderAuth.idToken, "addFriendByHandle", {
+    handle: receiver.handle,
+  });
+  const friendSnapshot = await db
+    .collection("users")
+    .doc(sender.uid)
+    .collection("friends")
+    .doc(receiver.uid)
+    .get();
 
   const roomResult = await callFunction(senderAuth.idToken, "createRoom", {
     type: "direct",
     participantHandles: [receiver.handle],
   });
   const roomId = roomResult.roomId;
-  const db = admin.firestore();
   const staleTokenRef = db
     .collection("users")
     .doc(receiver.uid)
@@ -121,7 +131,7 @@ async function main() {
   const reviewVoiceResult = await callFunction(senderAuth.idToken, "sendVoiceMessage", {
     roomId,
     draftId,
-    finalText: draftResult.transcript || "hello voice messenger",
+    finalText: draftResult.transcript || "hello verbal",
     sendMode: "confirm",
   });
 
@@ -252,6 +262,12 @@ async function main() {
       participantIds: roomSnapshot.data()?.participantIds || [],
       senderMemberExists: senderMember.exists,
       receiverMemberExists: receiverMember.exists,
+    },
+    friend: {
+      addedUid: friendResult.friend?.uid || null,
+      addedHandle: friendResult.friend?.handle || null,
+      friendDocumentExists: friendSnapshot.exists,
+      friendDocumentHandle: friendSnapshot.data()?.handle || null,
     },
     text: {
       senderMessageId: senderTextResult.messageId,
@@ -493,7 +509,7 @@ function ensureSpeechAudio(outputPath) {
     "Add-Type -AssemblyName System.Speech",
     "$synth = New-Object System.Speech.Synthesis.SpeechSynthesizer",
     `$synth.SetOutputToWaveFile('${escapePowerShellPath(outputPath)}')`,
-    "$synth.Speak('hello voice messenger, this is a Deepgram test')",
+    "$synth.Speak('hello verbal, this is a Deepgram test')",
     "$synth.SetOutputToNull()",
   ].join("; ");
   execFileSync("powershell", ["-NoProfile", "-Command", script], {

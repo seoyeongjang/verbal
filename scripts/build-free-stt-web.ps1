@@ -23,8 +23,8 @@ Push-Location $appDir
 try {
   & $flutter pub get
   & $flutter build web `
-    --dart-define=VOICE_MESSENGER_DEMO=true `
-    --dart-define=VOICE_MESSENGER_BROWSER_STT=true
+    --dart-define=VERBAL_DEMO=true `
+    --dart-define=VERBAL_BROWSER_STT=true
 }
 finally {
   Pop-Location

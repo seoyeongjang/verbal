@@ -2,12 +2,16 @@
 
 Korean translation: `docs/ko/LAUNCH_CHECKLIST.md`
 
-Status date: 2026-05-28
+Status date: 2026-06-04
 
-This checklist tracks the current Voice Messenger MVP against the work still
+This checklist tracks the current Verbal MVP against the work still
 needed before a public launch. The app is feature-rich enough for local and
 closed beta validation, but it is not production-launch ready until the P0
 items are complete.
+
+Related review: `docs/MESSENGER_FUNCTION_AND_LAUNCH_REVIEW.md` compares
+Verbal with Instagram DM, KakaoTalk, and Telegram and lists the next product
+functions plus launch-preparation gaps.
 
 ## Implemented Product Surface
 
@@ -41,8 +45,8 @@ items are complete.
 - [x] Local Deepgram STT mode for real STT quality testing before Firebase
   Functions deployment.
 - [x] Firebase Functions Deepgram STT path in code.
-- [x] Review-before-send voice transcript sheet.
-- [x] Instant-send voice mode.
+- [x] Voice STT auto-send without a review sheet.
+- [x] STT recovery sheet for retry or manual transcript entry when STT fails.
 - [x] No default transcript fallback text when STT fails.
 - [x] STT failure recovery with retry and manual transcript send.
 - [x] Korean/UTF-8 transcript display fixes in the app layer.
@@ -74,7 +78,7 @@ items are complete.
 - [x] No fixed product-level voice-message duration cap.
 - [x] In-app calendar screen separated from chat message composition.
 - [x] Voice-to-calendar flow: STT, explicit Korean date/time parsing,
-  confirmation/edit sheet, then save.
+  automatic save for complete commands, retry prompt for incomplete commands.
 - [x] Direct calendar event add/edit/hard-delete UI, including editable
   detailed notes.
 - [x] Calendar events are stored under `users/{uid}/calendarEvents` instead of
@@ -126,7 +130,7 @@ items are complete.
   profile setup, handle reservation, and production-mode home load.
 - [x] Production backend E2E smoke test passed with Firebase Auth test phones:
   direct room creation, two-way text send, voice upload, Deepgram transcript,
-  review-send voice, instant-send voice, and FCM stale-token cleanup.
+  automatic voice send, instant backend send, and FCM stale-token cleanup.
 - [x] Google Play store listing text prepared under `artifacts/store/google-play`.
 - [x] Google Play submission pack prepared.
 - [x] Google Play Data Safety draft prepared.
@@ -135,7 +139,7 @@ items are complete.
 ## Partially Implemented / Needs Production Verification
 
 - [x] Production Deepgram STT backend path is deployed and verified by server
-  E2E for review-send and instant-send voice messages.
+  E2E for automatic voice send and instant backend send messages.
 - [ ] Real-device voice recording and Korean transcript quality still need
   verification with live microphone input.
 - [ ] Firebase Phone Auth provider and test phone number are enabled, but the
@@ -170,14 +174,14 @@ items are complete.
 - [x] Deploy Firestore rules and indexes again after final review.
 - [x] Run Android emulator production-backend sign-up smoke test with Firebase
   test phone, profile setup, handle reservation, and room-list load.
-- [x] Verify Android emulator microphone permission prompt, active recording
-  state, and review-before-send voice sheet.
+- [x] Verify Android emulator microphone permission prompt and active recording
+  state.
 - [x] Run production backend E2E for Firebase Auth test phones, direct room
-  creation, two-way text send, voice upload, Deepgram transcript, review-send,
-  instant-send, and FCM stale-token cleanup.
+  creation, two-way text send, voice upload, Deepgram transcript, automatic
+  voice send, instant backend send, and FCM stale-token cleanup.
 - [ ] Run a full production Firebase E2E test: phone auth, profile setup, handle
   reservation, room creation, text send, voice upload, Deepgram transcript,
-  review send, instant send, attachment, location, scheduled send, translation,
+  automatic voice send, attachment, location, scheduled send, translation,
   invite link/QR, calendar voice event, calendar edit/delete, message edit,
   message delete, report, block, and leave room.
 - [ ] Verify STT latency, failure handling, and Korean transcript quality on real
@@ -185,8 +189,8 @@ items are complete.
 - [ ] Verify audio retention deletion while preserving transcripts.
 - [ ] Verify FCM push notifications on real Android devices.
 - [ ] Configure APNs and verify iOS push if iOS launch is in scope.
-- [x] Rebuild Android release AAB from the latest source after the emulator
-  sign-up fixes.
+- [x] Rebuild Android release AAB from the latest source after voice auto-send
+  and voice-calendar auto-save changes.
 - [ ] Create Google Play Console app listing and upload to internal testing.
 - [ ] Complete Google Play Data Safety form in Play Console.
 - [x] Prepare privacy policy, terms of service, and account/data deletion policy
@@ -206,6 +210,8 @@ items are complete.
 - [x] Add invite abuse and spam throttling that does not impose normal user
   message-count limits.
 - [x] Add STT retry and manual transcript recovery states.
+- [x] Remove voice-message transcript review sheet and send automatically after
+  STT succeeds.
 - [x] Add offline/reconnect UI states for room list and chat stream failures.
 - [x] Add media upload/send progress, retry, and failure states for composer
   actions.
@@ -240,6 +246,30 @@ cd C:\Users\jangs\OneDrive\바탕 화면\vibe_code\voice_messanger
 .\scripts\build-free-stt-web.ps1
 .\scripts\verify-production-backend.ps1
 ```
+
+## 2026-06-04 Update
+
+- [x] Product brand finalized as `Verbal` across app
+  labels, store docs, product docs, support docs, local scripts, and demo assets.
+- [x] Existing Firebase project ID, Android package ID, iOS bundle ID, and native
+  method-channel names remain unchanged to preserve the currently configured
+  production backend connection.
+- [x] Voice calendar STT now saves complete title/date/time commands
+  automatically without opening the add-event sheet.
+- [x] Voice calendar auto-save speaks a completion message after successful
+  event creation.
+- [x] Voice messages now transcribe first and send automatically without opening
+  the transcript review sheet.
+- [x] Product, QA, operations, support, store, data-model, and launch documents
+  updated to match the auto-send behavior.
+- [x] Android release AAB rebuilt from the latest source and copied to
+  `dist/android/app-release.aab`.
+- [ ] Next: real-device spoken QA for voice message STT auto-send and voice
+  calendar auto-save.
+- [ ] Next: real-device FCM foreground/background/terminated push verification.
+- [ ] Next: audio retention expiry verification with transcript preservation.
+- [ ] Next: Google Play internal testing listing creation and Data Safety form
+  completion.
 
 ## Launch Decision
 

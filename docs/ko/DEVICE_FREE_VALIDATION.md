@@ -24,10 +24,10 @@
 - Android release AAB build 통과.
 - 예산 알림과 로그 알림 정책 존재 확인.
 - Android 에뮬레이터 `DecisionHub_API_36` 회원가입 smoke test 통과.
-- Android 에뮬레이터에서 마이크 권한 팝업, 녹음 중 상태, 확인 후 전송 시트 확인.
+- Android 에뮬레이터에서 마이크 권한 팝업과 녹음 중 상태 확인.
 - 운영 백엔드 E2E smoke test 통과: Firebase Auth test phone 2개, 1:1 방
-  생성, 양방향 텍스트 전송, 음성 업로드, Deepgram transcript, 확인 후
-  전송, 즉시 전송, FCM 만료 토큰 정리.
+  생성, 양방향 텍스트 전송, 음성 업로드, Deepgram transcript, 자동 음성
+  전송, 즉시 백엔드 전송, FCM 만료 토큰 정리.
 - 앱 내부 캘린더 데이터 모델과 Firestore rule 동작은 일정이 인증된 사용자
   문서 아래 저장되고 쓰기가 callable Functions로만 수행되므로 실기기 없이도
   검증 가능.

@@ -2,11 +2,15 @@
 
 원문: `docs/LAUNCH_CHECKLIST.md`
 
-상태 기준일: 2026-05-28
+상태 기준일: 2026-06-04
 
-이 문서는 현재 Voice Messenger MVP의 구현 현황과 공개 런칭 전 남은 작업을
+이 문서는 현재 Verbal MVP의 구현 현황과 공개 런칭 전 남은 작업을
 추적합니다. 현재 앱은 로컬 테스트와 제한된 클로즈드 베타를 진행할 수 있는
 수준이지만, P0 항목이 끝나기 전에는 공개 런칭 준비가 완료된 상태가 아닙니다.
+
+관련 리뷰: `docs/ko/MESSENGER_FUNCTION_AND_LAUNCH_REVIEW.md`에는
+인스타그램 DM, 카카오톡, 텔레그램과 비교한 추가 기능 리스트와 런칭 준비
+gap을 정리했습니다.
 
 ## 구현 완료된 제품 기능
 
@@ -36,10 +40,11 @@
 - [x] 비용 없는 UX 테스트용 브라우저 무료 STT 모드.
 - [x] Firebase Functions 배포 전 실제 품질 확인용 로컬 Deepgram STT 모드.
 - [x] Firebase Functions 기반 Deepgram STT 경로 코드 구현.
-- [x] 음성 transcript 확인 후 전송 시트.
-- [x] 음성 즉시 전송 모드.
+- [x] 음성 STT 완료 후 확인 시트 없이 자동 전송.
+- [x] STT 완료 후 자동 음성 전송 모드.
 - [x] STT 실패 시 기본 문구를 임의로 넣지 않도록 처리.
 - [x] STT 실패 시 재시도와 직접 transcript 입력 전송 복구.
+- [x] 음성 메시지 transcript 확인 시트 제거.
 - [x] 앱 레이어의 한글/UTF-8 transcript 표시 문제 수정.
 - [x] 메시지 답장.
 - [x] 메시지 반응.
@@ -110,7 +115,7 @@
   프로필 설정, 아이디 예약, 운영 모드 홈 로드.
 - [x] 운영 백엔드 E2E smoke test 통과: Firebase Auth test phone 2개,
   1:1 방 생성, 양방향 텍스트 전송, 음성 업로드, Deepgram transcript,
-  확인 후 전송, 즉시 전송, FCM 만료 토큰 정리.
+  자동 음성 전송, 즉시 백엔드 전송, FCM 만료 토큰 정리.
 - [x] Google Play 스토어 등록 문구를 `artifacts/store/google-play`에 준비.
 - [x] Google Play 제출 패키지 준비.
 - [x] Google Play Data Safety 초안 준비.
@@ -118,8 +123,8 @@
 
 ## 부분 구현 / 프로덕션 검증 필요
 
-- [x] 프로덕션 Deepgram STT 백엔드 경로는 review-send와 instant-send 음성
-  메시지 기준 서버 E2E로 검증되었습니다.
+- [x] 프로덕션 Deepgram STT 백엔드 경로는 자동 음성 전송과 즉시 백엔드
+  전송 메시지 기준 서버 E2E로 검증되었습니다.
 - [ ] 실제 기기 마이크 입력 기준 녹음 품질과 한국어 transcript 품질 검증이
   필요합니다.
 - [ ] Firebase Phone Auth provider와 테스트 전화번호는 활성화되었지만 실제 SMS
@@ -149,19 +154,20 @@
 - [x] `DEEPGRAM_API_KEY`를 Firebase Functions secret으로 설정.
 - [x] Cloud Functions 배포.
 - [x] 최종 검토 후 Firestore rules와 indexes 재배포.
-- [x] Android 에뮬레이터에서 마이크 권한 팝업, 녹음 중 상태, 확인 후 전송 시트 확인.
+- [x] Android 에뮬레이터에서 마이크 권한 팝업과 녹음 중 상태 확인.
 - [x] 운영 백엔드 E2E 실행: Firebase Auth test phone 2개, 1:1 방 생성,
-  양방향 텍스트 전송, 음성 업로드, Deepgram transcript, 확인 후 전송,
-  즉시 전송, FCM 만료 토큰 정리.
+  양방향 텍스트 전송, 음성 업로드, Deepgram transcript, 자동 음성 전송,
+  즉시 백엔드 전송, FCM 만료 토큰 정리.
 - [ ] 프로덕션 Firebase 전체 E2E 테스트: 전화번호 인증, 프로필 설정, 아이디
-  선점, 방 생성, 텍스트 전송, 음성 업로드, Deepgram transcript, 확인 후 전송,
-  즉시 전송, 첨부, 위치, 예약 전송, 번역, 초대 링크/QR, 수정, 삭제, 신고,
+  선점, 방 생성, 텍스트 전송, 음성 업로드, Deepgram transcript, 자동 음성
+  전송, 첨부, 위치, 예약 전송, 번역, 초대 링크/QR, 수정, 삭제, 신고,
   차단, 방 나가기.
 - [ ] 실제 기기에서 STT 지연시간, 실패 처리, 한국어 transcript 품질 검증.
 - [ ] transcript는 유지하면서 음성 보존기간 만료 삭제가 동작하는지 검증.
 - [ ] 실제 Android 기기에서 FCM 푸시 검증.
 - [ ] iOS 런칭이 범위에 포함된다면 APNs 설정과 iOS 푸시 검증.
-- [x] 최신 소스 기준 Android release AAB 재빌드.
+- [x] 음성 자동 전송과 음성 일정 자동 저장 변경 이후 최신 소스 기준 Android
+  release AAB 재빌드.
 - [ ] Google Play Console 앱 listing 생성과 internal testing 업로드.
 - [ ] Play Console에서 Google Play Data Safety 작성.
 - [x] 개인정보처리방침, 이용약관, 계정/데이터 삭제 정책 초안 준비.
@@ -225,7 +231,7 @@ MVP는 로컬 프리뷰, 무료 STT UX 테스트, 로컬 Deepgram STT 테스트,
 - [x] 홈 방 목록 쿼리 Firestore rules 수정/배포 및 보안규칙 테스트 추가.
 - [x] smoke test 수정사항 반영 후 Android release AAB 재빌드.
 - [x] 운영 백엔드 E2E에서 방 생성, 양방향 텍스트, 음성 업로드, Deepgram STT,
-  review-send, instant-send, FCM 만료 토큰 정리 통과.
+  자동 음성 전송, 즉시 백엔드 전송, FCM 만료 토큰 정리 통과.
 - [ ] 실제 기기에서 실제 SMS, 마이크 녹음, Deepgram STT 품질, FCM foreground/background/terminated 검증 필요.
 - [ ] 전체 운영 E2E는 아직 실제 기기 기준으로 남아 있음.
 
@@ -233,10 +239,30 @@ MVP는 로컬 프리뷰, 무료 STT UX 테스트, 로컬 Deepgram STT 테스트,
 
 - [x] 채팅 메시지 composer와 분리된 앱 내부 캘린더 화면 추가.
 - [x] 음성 일정 추가 flow 구현: STT, 명시적 한국어 날짜/시간 파싱,
-  확인/수정 시트, 저장.
+  완전한 명령은 자동 저장, 불완전한 명령은 재시도 안내.
 - [x] 직접 일정 추가/수정/hard delete UI 구현. 제목과 상세 내용 모두 수정 가능.
 - [x] 일정은 채팅 메시지 컬렉션이 아닌 `users/{uid}/calendarEvents`에 저장.
 - [x] Cloud Functions `createCalendarIntentDraft`, `createCalendarEvent`,
   `updateCalendarEvent`, `deleteCalendarEvent` 구현.
 - [x] Firestore rules에서 본인 일정 read만 허용하고 client write 차단.
 - [x] 런칭 전 전체 E2E 범위에 음성 일정 추가와 일정 수정/삭제 검증 추가.
+
+## 2026-06-04 업데이트
+
+- [x] 제품 브랜드명을 `Verbal`로 확정하고 앱 표시명,
+  스토어 문서, 제품 문서, 고객지원 문서, 로컬 스크립트, 데모 asset에 반영했습니다.
+- [x] 기존 Firebase project ID, Android package ID, iOS bundle ID, native
+  method-channel 이름은 현재 운영 백엔드 연결을 유지하기 위해 변경하지 않았습니다.
+- [x] 음성 캘린더 STT가 제목/날짜/시간을 모두 파싱하면 일정 추가 시트 없이
+  자동 저장합니다.
+- [x] 음성 캘린더 자동 저장 성공 후 완료 음성 안내를 실행합니다.
+- [x] 음성 메시지는 STT 완료 후 transcript 확인 시트 없이 자동 전송합니다.
+- [x] 제품, QA, 운영, 고객지원, 스토어, 데이터 모델, 런칭 문서를 자동 전송
+  기준으로 갱신했습니다.
+- [x] 최신 소스로 Android release AAB를 다시 빌드하고
+  `dist/android/app-release.aab`에 복사했습니다.
+- [ ] 다음: 실기기에서 실제 발화 기준 음성 메시지 STT 자동 전송과 음성 일정
+  자동 저장 검증.
+- [ ] 다음: 실기기 FCM foreground/background/terminated 푸시 검증.
+- [ ] 다음: transcript 보존 상태에서 음성파일 보존기간 만료 삭제 검증.
+- [ ] 다음: Google Play internal testing 앱 등록과 Data Safety form 작성.

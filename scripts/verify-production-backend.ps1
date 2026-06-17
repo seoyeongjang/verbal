@@ -58,13 +58,22 @@ try {
   $functionsOutput = & node functions\scripts\firebase-cli.js functions:list --project $ProjectId
   $requiredFunctions = @(
     "getOperationalHealth",
+    "addFriendByHandle",
+    "createRoomInvite",
+    "joinRoomByInvite",
     "createTranscriptionDraft",
     "createCalendarIntentDraft",
     "createCalendarEvent",
     "updateCalendarEvent",
     "deleteCalendarEvent",
+    "createCalendarProposal",
+    "voteCalendarProposal",
+    "finalizeCalendarProposal",
+    "addFinalizedProposalToMyCalendar",
+    "cancelCalendarProposal",
     "sendVoiceMessage",
     "sendInstantVoiceMessage",
+    "finalizeClientVoiceMessage",
     "rollupUsageAndCost",
     "deliverScheduledMessages",
     "expireVoiceAudio",
@@ -98,12 +107,12 @@ try {
   Assert-Ok ($null -ne $projectBudget) "Project-scoped budget alert exists."
 
   $loggingMetrics = & gcloud logging metrics list --project=$ProjectId --format="value(name)"
-  Assert-Ok ($loggingMetrics -contains "voice_messenger_function_errors") "Function error log metric exists."
-  Assert-Ok ($loggingMetrics -contains "voice_messenger_deepgram_errors") "Deepgram error log metric exists."
+  Assert-Ok ($loggingMetrics -contains "verbal_function_errors") "Function error log metric exists."
+  Assert-Ok ($loggingMetrics -contains "verbal_deepgram_errors") "Deepgram error log metric exists."
 
   $alertPolicies = & gcloud monitoring policies list --project=$ProjectId --format="value(displayName)"
-  Assert-Ok ($alertPolicies -contains "Voice Messenger Function Errors") "Function error alert policy exists."
-  Assert-Ok ($alertPolicies -contains "Voice Messenger Deepgram Errors") "Deepgram error alert policy exists."
+  Assert-Ok ($alertPolicies -contains "Verbal Function Errors") "Function error alert policy exists."
+  Assert-Ok ($alertPolicies -contains "Verbal Deepgram Errors") "Deepgram error alert policy exists."
 
   & node functions\scripts\firebase-cli.js deploy --only firestore:rules,firestore:indexes --project $ProjectId --dry-run | Out-Null
   Assert-Ok $true "Firestore rules and indexes compile in dry-run."

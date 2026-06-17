@@ -79,19 +79,19 @@ $functionErrorFilter = 'resource.type="cloud_run_revision" AND severity>=ERROR'
 $deepgramErrorFilter = 'resource.type="cloud_run_revision" AND (textPayload:"Deepgram" OR jsonPayload.message:"Deepgram") AND severity>=ERROR'
 
 Upsert-LogMetric `
-  -Name "voice_messenger_function_errors" `
-  -Description "Voice Messenger Cloud Functions and Cloud Run error logs." `
+  -Name "verbal_function_errors" `
+  -Description "Verbal Cloud Functions and Cloud Run error logs." `
   -Filter $functionErrorFilter
 
 Upsert-LogMetric `
-  -Name "voice_messenger_deepgram_errors" `
-  -Description "Voice Messenger Deepgram STT error logs." `
+  -Name "verbal_deepgram_errors" `
+  -Description "Verbal Deepgram STT error logs." `
   -Filter $deepgramErrorFilter
 
 Ensure-LogAlertPolicy `
-  -DisplayName "Voice Messenger Function Errors" `
+  -DisplayName "Verbal Function Errors" `
   -Filter $functionErrorFilter
 
 Ensure-LogAlertPolicy `
-  -DisplayName "Voice Messenger Deepgram Errors" `
+  -DisplayName "Verbal Deepgram Errors" `
   -Filter $deepgramErrorFilter

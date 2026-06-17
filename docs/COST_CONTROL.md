@@ -1,6 +1,6 @@
 # Cost Control And Monetization Policy
 
-Voice Messenger is a free personal messenger. Personal chat subscription is not part of the core business model.
+Verbal is a free personal messenger. Personal chat subscription is not part of the core business model.
 
 ## Defaults
 

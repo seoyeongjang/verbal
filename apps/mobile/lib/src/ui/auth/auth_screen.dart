@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import '../../services/messenger_backend.dart';
 
 const _kAccent = Color(0xFF00A86B);
-const _kInk = Color(0xFF111111);
-const _kMuted = Color(0xFF70727A);
+const _kLogoBlack = Color(0xFF111111);
+const _kInk = Color(0xFFF7F7F8);
+const _kMuted = Color(0xFFB7BBC3);
+const _kFieldFill = Color(0xFF1C211F);
+const _kFieldBorder = Color(0xFF29332F);
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({required this.isDemoMode, super.key});
@@ -33,7 +36,7 @@ class _AuthScreenState extends State<AuthScreen> {
   Widget build(BuildContext context) {
     final backend = BackendScope.of(context);
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: _kLogoBlack,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -46,7 +49,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   const _BrandMark(),
                   const SizedBox(height: 22),
                   const Text(
-                    'Voice Messenger',
+                    'Verbal',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: _kInk,
@@ -90,7 +93,9 @@ class _AuthScreenState extends State<AuthScreen> {
                     ),
                   if (_loading) ...[
                     const SizedBox(height: 18),
-                    const Center(child: CircularProgressIndicator()),
+                    const Center(
+                      child: CircularProgressIndicator(color: _kAccent),
+                    ),
                   ],
                   if (_error != null) ...[
                     const SizedBox(height: 18),
@@ -167,9 +172,9 @@ class _DemoLogin extends StatelessWidget {
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: const Color(0xFFEFFAF4),
+            color: _kFieldFill,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFF8FE7B8)),
+            border: Border.all(color: _kFieldBorder),
           ),
           child: const Text(
             '데모 모드에서 화면과 음성 전송 흐름을 먼저 확인할 수 있습니다.',
@@ -213,10 +218,12 @@ class _PhoneLogin extends StatelessWidget {
         TextField(
           controller: phoneController,
           keyboardType: TextInputType.phone,
-          decoration: const InputDecoration(
+          style: const TextStyle(color: _kInk, fontWeight: FontWeight.w800),
+          cursorColor: _kAccent,
+          decoration: _authInputDecoration(
             labelText: '전화번호',
             hintText: '+821012345678',
-            prefixIcon: Icon(Icons.phone_rounded),
+            prefixIcon: const Icon(Icons.phone_rounded),
           ),
         ),
         const SizedBox(height: 12),
@@ -230,9 +237,11 @@ class _PhoneLogin extends StatelessWidget {
           TextField(
             controller: smsController,
             keyboardType: TextInputType.number,
-            decoration: const InputDecoration(
+            style: const TextStyle(color: _kInk, fontWeight: FontWeight.w800),
+            cursorColor: _kAccent,
+            decoration: _authInputDecoration(
               labelText: '인증번호',
-              prefixIcon: Icon(Icons.password_rounded),
+              prefixIcon: const Icon(Icons.password_rounded),
             ),
           ),
           const SizedBox(height: 12),
@@ -245,4 +254,33 @@ class _PhoneLogin extends StatelessWidget {
       ],
     );
   }
+}
+
+InputDecoration _authInputDecoration({
+  required String labelText,
+  String? hintText,
+  required Widget prefixIcon,
+}) {
+  return InputDecoration(
+    labelText: labelText,
+    hintText: hintText,
+    prefixIcon: prefixIcon,
+    filled: true,
+    fillColor: _kFieldFill,
+    labelStyle: const TextStyle(color: _kMuted, fontWeight: FontWeight.w700),
+    floatingLabelStyle: const TextStyle(
+      color: _kAccent,
+      fontWeight: FontWeight.w900,
+    ),
+    hintStyle: TextStyle(color: _kMuted.withValues(alpha: 0.52)),
+    prefixIconColor: _kInk,
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(24),
+      borderSide: const BorderSide(color: _kFieldBorder),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(24),
+      borderSide: const BorderSide(color: _kAccent, width: 1.5),
+    ),
+  );
 }

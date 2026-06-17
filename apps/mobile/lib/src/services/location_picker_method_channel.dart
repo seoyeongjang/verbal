@@ -3,7 +3,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import 'location_picker_types.dart';
 
-const _channel = MethodChannel('voice_messenger/location');
+const _channel = MethodChannel('verbal/location');
 
 Future<PickedLocation?> pickCurrentLocation() async {
   final status = await Permission.locationWhenInUse.request();

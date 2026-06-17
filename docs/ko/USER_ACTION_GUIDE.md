@@ -119,8 +119,8 @@ C:\Users\jangs\develop\flutter\bin\flutter.bat run
 - 대화방 생성.
 - 텍스트 메시지 전송.
 - 음성 녹음.
-- 확인 후 전송 모드의 전사와 전송.
-- 즉시 전송 모드의 pending 메시지와 전사 결과 업데이트.
+- STT 성공 후 음성 자동 전송.
+- STT 재시도와 직접 transcript 입력 복구.
 - 음성 재생.
 - 두 번째 기기에서 푸시 알림 수신.
 
@@ -151,7 +151,7 @@ Play Console 업로드 전 확인:
 절차:
 
 1. macOS에서 `apps/mobile/ios/Runner.xcworkspace`를 엽니다.
-2. bundle ID `com.voicebeta.voiceMessenger`에 대한 team signing을 설정합니다.
+2. bundle ID `com.voicebeta.verbal`에 대한 team signing을 설정합니다.
 3. Firebase Console에 APNs key/certificate를 추가합니다.
 4. Xcode에서 archive를 빌드합니다.
 5. App Store Connect에 업로드합니다.
@@ -159,5 +159,5 @@ Play Console 업로드 전 확인:
 
 Firebase iOS 앱은 이미 등록되어 있습니다.
 
-- Bundle ID: `com.voicebeta.voiceMessenger`
-- App ID: `1:203811587610:ios:25d3ef7152d835c720f3a3`
+- Bundle ID: `com.voicebeta.verbal`
+- App ID: `1:203811587610:ios:e953a69e5930e77720f3a3`

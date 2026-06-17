@@ -26,11 +26,11 @@ device is available.
 - Android release AAB build passes.
 - Budget alert and logging alert policies exist.
 - Android emulator sign-up smoke test passed on `DecisionHub_API_36`.
-- Android emulator microphone permission prompt, recording active state, and
-  review-before-send sheet were verified.
+- Android emulator microphone permission prompt and recording active state were
+  verified.
 - Production backend E2E smoke test passes with Firebase Auth test phones:
   direct room creation, two-way text send, voice upload, Deepgram transcript,
-  review-send voice, instant-send voice, and FCM stale-token cleanup.
+  automatic voice send, instant backend send, and FCM stale-token cleanup.
 - In-app calendar data model and Firestore rule behavior can be validated
   without a physical device because events are stored under the authenticated
   user document and writes are mediated by callable Functions.

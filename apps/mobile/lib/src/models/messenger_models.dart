@@ -19,7 +19,8 @@ enum SendMode {
 
 enum RoomType {
   direct,
-  group;
+  group,
+  open;
 
   static RoomType fromWire(String? value) {
     return values.firstWhere(
@@ -46,6 +47,7 @@ enum MessageKind {
 }
 
 enum MessageDeliveryStatus {
+  sending,
   scheduled,
   sent,
   failed;
@@ -58,6 +60,7 @@ enum MessageDeliveryStatus {
   }
 
   String get label => switch (this) {
+    MessageDeliveryStatus.sending => '전송 중',
     MessageDeliveryStatus.scheduled => '예약됨',
     MessageDeliveryStatus.sent => '전송됨',
     MessageDeliveryStatus.failed => '실패',
@@ -599,15 +602,107 @@ class ChatMessage {
   int get reactionCount =>
       reactions.values.fold<int>(0, (total, users) => total + users.length);
 
+  static bool _isGenericVoicePlaceholder(String value) {
+    final normalized = value.trim();
+    return normalized.isEmpty ||
+        normalized == '\uC74C\uC131 \uBA54\uC2DC\uC9C0' ||
+        normalized == '\uC0C8 \uC74C\uC131 \uBA54\uC2DC\uC9C0' ||
+        normalized == 'Voice message' ||
+        normalized == '\uC74C\uC131 \uBCC0\uD658 \uC911...' ||
+        normalized == '\uC74C\uC131 \uBCC0\uD658 \uB300\uAE30 \uC911...' ||
+        normalized == '\uC74C\uC131 \uBCC0\uD658 \uACB0\uACFC \uC5C6\uC74C' ||
+        normalized ==
+            '\uC74C\uC131 \uBCC0\uD658 \uACB0\uACFC\uAC00 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.';
+  }
+
+  static bool _isFailedVoicePlaceholder(String value) {
+    final normalized = value.trim();
+    return normalized ==
+            '\uC74C\uC131 \uBCC0\uD658\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.' ||
+        normalized == '\uC74C\uC131 \uBCC0\uD658 \uC2E4\uD328' ||
+        normalized == '\uBCC0\uD658 \uC2E4\uD328';
+  }
+
+  static bool _looksLikeCorruptedVoicePlaceholder(String value) {
+    final normalized = value.trim();
+    if (normalized.isEmpty) {
+      return true;
+    }
+    const mojibakeSignals = [
+      '\uFFFD',
+      '???',
+      '\u7650',
+      '\u7B4C',
+      '\u56A5',
+      '\u91CE',
+      '\u63F6',
+      '\u69AE',
+      '\u63F4',
+      '\u6FE1',
+      '\u5A9B',
+    ];
+    final hasLongQuestionRun =
+        RegExp(r'\?{3,}').hasMatch(normalized) && normalized.length > 12;
+    return hasLongQuestionRun || mojibakeSignals.any(normalized.contains);
+  }
+
+  static String _cleanVoiceTranscriptText(String value) {
+    final lines = value
+        .split(RegExp(r'\r?\n'))
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .where((line) => !_isGenericVoicePlaceholder(line))
+        .where((line) => !_isFailedVoicePlaceholder(line))
+        .where((line) => !_looksLikeCorruptedVoicePlaceholder(line))
+        .toList(growable: false);
+    return lines.join('\n').trim();
+  }
+
+  String get voiceTranscriptText {
+    if (kind != MessageKind.voice || isDeleted) {
+      return '';
+    }
+    final trimmedText = _cleanVoiceTranscriptText(text);
+    if (trimmedText.isNotEmpty &&
+        !_isFailedVoicePlaceholder(trimmedText) &&
+        !_isGenericVoicePlaceholder(trimmedText)) {
+      return trimmedText;
+    }
+    final trimmedTranscript = _cleanVoiceTranscriptText(transcript);
+    if (trimmedTranscript.isNotEmpty &&
+        !_isFailedVoicePlaceholder(trimmedTranscript) &&
+        !_isGenericVoicePlaceholder(trimmedTranscript)) {
+      return trimmedTranscript;
+    }
+    return '';
+  }
+
   String get displayText {
     if (isDeleted) {
-      return '삭제된 메시지입니다.';
+      return '\uC0AD\uC81C\uB41C \uBA54\uC2DC\uC9C0\uC785\uB2C8\uB2E4.';
     }
-    if (text.trim().isNotEmpty) {
-      return text.trim();
+    final trimmedText = text.trim();
+    final trimmedTranscript = transcript.trim();
+    if (kind == MessageKind.voice) {
+      final voiceText = voiceTranscriptText;
+      if (voiceText.isNotEmpty) {
+        return voiceText;
+      }
+      if (deliveryStatus == MessageDeliveryStatus.sending ||
+          sttStatus == SttStatus.processing ||
+          sttStatus == SttStatus.pending) {
+        return '\uC74C\uC131 \uBCC0\uD658 \uC911...';
+      }
+      if (sttStatus == SttStatus.failed) {
+        return '\uC74C\uC131 \uBCC0\uD658 \uC2E4\uD328';
+      }
+      return '\uC74C\uC131 \uBCC0\uD658 \uC2E4\uD328';
     }
-    if (transcript.trim().isNotEmpty) {
-      return transcript.trim();
+    if (trimmedText.isNotEmpty) {
+      return trimmedText;
+    }
+    if (trimmedTranscript.isNotEmpty) {
+      return trimmedTranscript;
     }
     if (attachment != null) {
       return attachment!.preview;
@@ -615,28 +710,50 @@ class ChatMessage {
     if (calendarProposal != null) {
       return calendarProposal!.title;
     }
-    return switch (sttStatus) {
-      SttStatus.processing || SttStatus.pending => '변환 중',
-      SttStatus.failed => '변환 실패',
-      _ => '',
-    };
+    if (sttStatus == SttStatus.processing || sttStatus == SttStatus.pending) {
+      return '\uBCC0\uD658 \uC911';
+    }
+    if (sttStatus == SttStatus.failed) {
+      return '\uBCC0\uD658 \uC2E4\uD328';
+    }
+    return '';
   }
 
   factory ChatMessage.fromMap(String id, Map<String, dynamic> data) {
+    final kind = MessageKind.fromWire(data['kind'] as String?);
+    final rawText = (data['text'] as String?) ?? '';
+    final rawTranscript = (data['transcript'] as String?) ?? '';
+    final text = kind == MessageKind.voice
+        ? _cleanVoiceTranscriptText(rawText)
+        : rawText;
+    final transcript = kind == MessageKind.voice
+        ? _cleanVoiceTranscriptText(rawTranscript)
+        : rawTranscript;
+    final rawSttStatus = SttStatus.fromWire(data['sttStatus'] as String?);
+    final audioPath = data['audioPath'] as String?;
+    final hasVoiceText = text.trim().isNotEmpty || transcript.trim().isNotEmpty;
+    final sttStatus =
+        kind == MessageKind.voice &&
+            !hasVoiceText &&
+            audioPath != null &&
+            audioPath.isNotEmpty &&
+            rawSttStatus != SttStatus.failed
+        ? SttStatus.processing
+        : rawSttStatus;
     return ChatMessage(
       id: id,
       senderId: (data['senderId'] as String?) ?? '',
-      kind: MessageKind.fromWire(data['kind'] as String?),
-      text: (data['text'] as String?) ?? '',
-      transcript: (data['transcript'] as String?) ?? '',
-      audioPath: data['audioPath'] as String?,
+      kind: kind,
+      text: text,
+      transcript: transcript,
+      audioPath: audioPath,
       audioHash: data['audioHash'] as String?,
       audioExpiresAt: _dateFromAny(data['audioExpiresAt']),
       audioDeletedAt: _dateFromAny(data['audioDeletedAt']),
       audioRetentionDays: (data['audioRetentionDays'] as num?)?.round(),
       audioRetentionStatus: (data['audioRetentionStatus'] as String?) ?? 'none',
       durationMs: (data['durationMs'] as num?)?.round() ?? 0,
-      sttStatus: SttStatus.fromWire(data['sttStatus'] as String?),
+      sttStatus: sttStatus,
       sttCacheHit: data['sttCacheHit'] == true,
       sendMode: SendMode.fromWire(data['sendMode'] as String?),
       createdAt:

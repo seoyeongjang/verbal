@@ -2,7 +2,7 @@
 
 Korean translation: `docs/ko/PRIVACY_POLICY.md`
 
-Voice Messenger collects the minimum data needed to provide authentication,
+Verbal collects the minimum data needed to provide authentication,
 messaging, voice transcription, safety, notifications, and service operations.
 
 ## Data We Process

@@ -1,4 +1,4 @@
-# voice_messenger
+# Verbal
 
 A new Flutter project.
 

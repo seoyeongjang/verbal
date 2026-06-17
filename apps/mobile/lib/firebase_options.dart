@@ -21,7 +21,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyDjkwqlejaw7fPfzcHJ3T4JCa6n1zY6-5o',
-    appId: '1:203811587610:android:713b3d7faece49f920f3a3',
+    appId: '1:203811587610:android:60b60d74b332290520f3a3',
     messagingSenderId: '203811587610',
     projectId: 'voice-messenger-jangs-260522',
     storageBucket: 'voice-messenger-jangs-260522.firebasestorage.app',
@@ -29,10 +29,10 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyBA438qYBAESmVqWtxD1xwwGCMlyNiq1VE',
-    appId: '1:203811587610:ios:25d3ef7152d835c720f3a3',
+    appId: '1:203811587610:ios:e953a69e5930e77720f3a3',
     messagingSenderId: '203811587610',
     projectId: 'voice-messenger-jangs-260522',
     storageBucket: 'voice-messenger-jangs-260522.firebasestorage.app',
-    iosBundleId: 'com.voicebeta.voiceMessenger',
+    iosBundleId: 'com.voicebeta.verbal',
   );
 }

@@ -4,7 +4,7 @@ Korean translation: `docs/ko/GOOGLE_PLAY_DATA_SAFETY.md`
 
 Status date: 2026-05-28
 
-This is a Play Console Data Safety draft for the current Voice Messenger MVP.
+This is a Play Console Data Safety draft for the current Verbal MVP.
 Review it before submission, because the final answers must match the actual
 production build, privacy policy, and enabled integrations.
 

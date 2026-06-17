@@ -113,7 +113,7 @@ try {
     -d chrome `
     --web-hostname 127.0.0.1 `
     --web-port $WebPort `
-    --dart-define=VOICE_MESSENGER_LOCAL_STT=true `
+    --dart-define=VERBAL_LOCAL_STT=true `
     --dart-define=LOCAL_STT_ENDPOINT=$endpoint
 }
 finally {

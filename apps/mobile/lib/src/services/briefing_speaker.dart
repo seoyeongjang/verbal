@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 class BriefingSpeaker {
   BriefingSpeaker._();
 
-  static const _channel = MethodChannel('voice_messenger/briefing_tts');
+  static const _channel = MethodChannel('verbal/briefing_tts');
 
   static Future<bool> speak(String text, {String language = 'ko-KR'}) async {
     final normalized = text.trim();

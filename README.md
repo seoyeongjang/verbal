@@ -1,4 +1,4 @@
-# Voice Messenger MVP
+# Verbal MVP
 
 Voice-first mobile messenger MVP for Korean users. The app keeps the familiar messenger base while making voice the fastest input path: record, transcribe, review or instantly send, then keep both audio and text searchable in the chat.
 

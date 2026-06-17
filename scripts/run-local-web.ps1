@@ -30,7 +30,7 @@ try {
     -d chrome `
     --web-hostname 127.0.0.1 `
     --web-port $Port `
-    --dart-define=VOICE_MESSENGER_DEMO=true
+    --dart-define=VERBAL_DEMO=true
 }
 finally {
   Pop-Location

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'src/models/messenger_models.dart';
 import 'src/services/app_preferences.dart';
@@ -16,11 +17,14 @@ import 'src/ui/auth/auth_screen.dart';
 import 'src/ui/home/home_screen.dart';
 import 'src/ui/profile/profile_setup_screen.dart';
 
+const _kAppLogoBlack = Color(0xFF111111);
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setSystemUIOverlayStyle(_systemChromeStyle);
 
-  const forceDemo = bool.fromEnvironment('VOICE_MESSENGER_DEMO');
-  const localStt = bool.fromEnvironment('VOICE_MESSENGER_LOCAL_STT');
+  const forceDemo = bool.fromEnvironment('VERBAL_DEMO');
+  const localStt = bool.fromEnvironment('VERBAL_LOCAL_STT');
   const localSttEndpoint = String.fromEnvironment(
     'LOCAL_STT_ENDPOINT',
     defaultValue: 'http://127.0.0.1:8787/transcribe',
@@ -38,35 +42,49 @@ Future<void> main() async {
     backend = FirebaseMessengerBackend();
   }
 
-  runApp(VoiceMessengerApp(backend: backend));
+  runApp(VerbalApp(backend: backend));
 }
 
-class VoiceMessengerApp extends StatefulWidget {
-  const VoiceMessengerApp({required this.backend, super.key});
+class VerbalApp extends StatefulWidget {
+  const VerbalApp({required this.backend, super.key});
 
   final MessengerBackend backend;
 
   @override
-  State<VoiceMessengerApp> createState() => _VoiceMessengerAppState();
+  State<VerbalApp> createState() => _VerbalAppState();
 }
 
-class _VoiceMessengerAppState extends State<VoiceMessengerApp> {
+class _VerbalAppState extends State<VerbalApp> {
   var _language = AppLanguage.ko;
   var _themeChoice = MessengerThemeChoice.system;
+  var _fontSizeChoice = MessengerFontSizeChoice.normal;
 
   @override
   Widget build(BuildContext context) {
     return AppPreferenceScope(
       language: _language,
       themeChoice: _themeChoice,
+      fontSizeChoice: _fontSizeChoice,
       setLanguage: (language) => setState(() => _language = language),
       setThemeChoice: (choice) => setState(() => _themeChoice = choice),
+      setFontSizeChoice: (choice) => setState(() => _fontSizeChoice = choice),
       child: BackendScope(
         backend: widget.backend,
         child: MaterialApp(
           debugShowCheckedModeBanner: false,
-          title: 'Voice Messenger',
-          builder: (context, child) => _ResponsivePhoneShell(child: child),
+          title: 'Verbal',
+          builder: (context, child) {
+            final mediaQuery = MediaQuery.of(context);
+            return AnnotatedRegion<SystemUiOverlayStyle>(
+              value: _systemChromeStyle,
+              child: MediaQuery(
+                data: mediaQuery.copyWith(
+                  textScaler: TextScaler.linear(_fontSizeChoice.scale),
+                ),
+                child: _ResponsivePhoneShell(child: child),
+              ),
+            );
+          },
           theme: _buildLightTheme(),
           darkTheme: _buildDarkTheme(),
           themeMode: _themeChoice.themeMode,
@@ -77,6 +95,15 @@ class _VoiceMessengerAppState extends State<VoiceMessengerApp> {
   }
 }
 
+const _systemChromeStyle = SystemUiOverlayStyle(
+  statusBarColor: _kAppLogoBlack,
+  statusBarIconBrightness: Brightness.light,
+  statusBarBrightness: Brightness.dark,
+  systemNavigationBarColor: _kAppLogoBlack,
+  systemNavigationBarDividerColor: _kAppLogoBlack,
+  systemNavigationBarIconBrightness: Brightness.light,
+);
+
 ThemeData _buildLightTheme() {
   return ThemeData(
     useMaterial3: true,
@@ -86,19 +113,19 @@ ThemeData _buildLightTheme() {
       secondary: Color(0xFF009E74),
       onSecondary: Colors.white,
       tertiary: Color(0xFF119B4F),
-      surface: Colors.white,
-      onSurface: Color(0xFF111111),
+      surface: _kAppLogoBlack,
+      onSurface: Color(0xFFF7F7F8),
       error: Color(0xFFD92D20),
     ),
-    scaffoldBackgroundColor: Colors.white,
+    scaffoldBackgroundColor: _kAppLogoBlack,
     appBarTheme: const AppBarTheme(
       elevation: 0,
       centerTitle: false,
-      backgroundColor: Colors.white,
-      foregroundColor: Color(0xFF111111),
-      surfaceTintColor: Colors.white,
+      backgroundColor: _kAppLogoBlack,
+      foregroundColor: Color(0xFFF7F7F8),
+      surfaceTintColor: _kAppLogoBlack,
       titleTextStyle: TextStyle(
-        color: Color(0xFF111111),
+        color: Color(0xFFF7F7F8),
         fontSize: 18,
         fontWeight: FontWeight.w900,
       ),
@@ -109,12 +136,12 @@ ThemeData _buildLightTheme() {
         borderSide: BorderSide.none,
       ),
       filled: true,
-      fillColor: Color(0xFFEFFAF4),
+      fillColor: Color(0xFF1C211F),
       contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 13),
     ),
     cardTheme: const CardThemeData(
       elevation: 0,
-      color: Colors.white,
+      color: Color(0xFF1C1C1E),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.all(Radius.circular(18)),
       ),
@@ -135,8 +162,8 @@ ThemeData _buildLightTheme() {
       ),
     ),
     popupMenuTheme: const PopupMenuThemeData(
-      color: Colors.white,
-      surfaceTintColor: Colors.white,
+      color: Color(0xFF1C1C1E),
+      surfaceTintColor: Color(0xFF1C1C1E),
     ),
   );
 }
@@ -223,7 +250,7 @@ class _ResponsivePhoneShell extends StatelessWidget {
             gradient: LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [Color(0xFFE8FFF2), Color(0xFF8FE7B8), Color(0xFF00A86B)],
+              colors: [_kAppLogoBlack, Color(0xFF17191B), Color(0xFF050505)],
             ),
           ),
           child: Center(
@@ -235,7 +262,7 @@ class _ResponsivePhoneShell extends StatelessWidget {
                   constraints: const BoxConstraints(maxWidth: 390),
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: _kAppLogoBlack,
                       borderRadius: BorderRadius.circular(34),
                       boxShadow: [
                         BoxShadow(
@@ -361,6 +388,9 @@ class _LoadingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    return const Scaffold(
+      backgroundColor: Color(0xFF111111),
+      body: Center(child: CircularProgressIndicator(color: Color(0xFF00A86B))),
+    );
   }
 }

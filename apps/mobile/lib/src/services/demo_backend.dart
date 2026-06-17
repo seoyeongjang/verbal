@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:uuid/uuid.dart';
 
@@ -22,13 +23,13 @@ class DemoMessengerBackend implements MessengerBackend {
         id: _demoRoomId,
         type: RoomType.direct,
         participantIds: const [_demoUid, 'friend-1'],
-        title: 'Minji',
+        title: '김민지',
         updatedAt: DateTime.now(),
         ownerId: _demoUid,
         memberRole: 'owner',
         lastMessage: LastMessage(
           kind: MessageKind.voice,
-          preview: 'Can we talk this evening?',
+          preview: '오늘 저녁에 통화 가능해?',
           senderId: 'friend-1',
           createdAt: DateTime.now().subtract(const Duration(minutes: 8)),
         ),
@@ -39,8 +40,8 @@ class DemoMessengerBackend implements MessengerBackend {
         id: _uuid.v4(),
         senderId: 'friend-1',
         kind: MessageKind.voice,
-        text: 'Can we talk this evening?',
-        transcript: 'Can we talk this evening?',
+        text: '오늘 저녁에 통화 가능해?',
+        transcript: '오늘 저녁에 통화 가능해?',
         audioPath: null,
         durationMs: 3200,
         sttStatus: SttStatus.completed,
@@ -51,7 +52,7 @@ class DemoMessengerBackend implements MessengerBackend {
         id: _uuid.v4(),
         senderId: _demoUid,
         kind: MessageKind.text,
-        text: 'Yes, 8 PM works for me.',
+        text: '네, 오후 8시 가능해요.',
         transcript: '',
         audioPath: null,
         durationMs: 0,
@@ -72,10 +73,43 @@ class DemoMessengerBackend implements MessengerBackend {
         uid: 'friend-1',
         role: RoomMemberRole.member,
         joinedAt: DateTime.now().subtract(const Duration(days: 2)),
-        displayName: 'Minji',
-        handle: 'minji',
+        displayName: '김민지',
+        handle: 'minji_kim',
       ),
     ];
+    _seedDirectRoom(
+      roomId: 'demo-room-jihoon',
+      friendUid: 'friend-2',
+      title: '이지훈',
+      handle: 'jihoon_lee',
+      preview: '음성 답장 고마워. 바로 확인했어.',
+      minutesAgo: 21,
+    );
+    _seedDirectRoom(
+      roomId: 'demo-room-yuna',
+      friendUid: 'friend-3',
+      title: '정유나',
+      handle: 'yuna_jung',
+      preview: '내일 일정 후보 두 개 올려뒀어.',
+      minutesAgo: 46,
+      unread: true,
+    );
+    _seedDirectRoom(
+      roomId: 'demo-room-arin',
+      friendUid: 'friend-4',
+      title: '최아린',
+      handle: 'arin_choi',
+      preview: '사진이랑 위치 같이 보내줄게!',
+      minutesAgo: 78,
+    );
+    _seedDirectRoom(
+      roomId: 'demo-room-seojun',
+      friendUid: 'friend-5',
+      title: '박서준',
+      handle: 'seojun_park',
+      preview: '오늘 브리핑 음성 좋더라.',
+      minutesAgo: 132,
+    );
     final startAt = DateTime.now().add(const Duration(days: 1, hours: 2));
     _calendarEvents.add(
       CalendarEvent(
@@ -116,10 +150,71 @@ class DemoMessengerBackend implements MessengerBackend {
   final _calendarEvents = <CalendarEvent>[];
   final _calendarProposals = <String, CalendarProposal>{};
   final _blockedUsers = <String>{};
+  final _friendHandles = <String>{};
   final _reports = <Map<String, dynamic>>[];
   final AudioTranscriber? _transcriber;
 
   AppUser? _currentUser;
+
+  void _seedDirectRoom({
+    required String roomId,
+    required String friendUid,
+    required String title,
+    required String handle,
+    required String preview,
+    required int minutesAgo,
+    bool unread = false,
+  }) {
+    final createdAt = DateTime.now().subtract(Duration(minutes: minutesAgo));
+    _rooms.add(
+      ChatRoom(
+        id: roomId,
+        type: RoomType.direct,
+        participantIds: [_demoUid, friendUid],
+        title: title,
+        updatedAt: createdAt,
+        ownerId: _demoUid,
+        memberRole: 'owner',
+        unreadCount: unread ? 1 : 0,
+        lastMessage: LastMessage(
+          kind: MessageKind.text,
+          preview: preview,
+          senderId: friendUid,
+          createdAt: createdAt,
+        ),
+      ),
+    );
+    _messages[roomId] = [
+      ChatMessage(
+        id: _uuid.v4(),
+        senderId: friendUid,
+        kind: MessageKind.text,
+        text: preview,
+        transcript: '',
+        audioPath: null,
+        durationMs: 0,
+        sttStatus: SttStatus.none,
+        sendMode: SendMode.confirm,
+        createdAt: createdAt,
+      ),
+    ];
+    _members[roomId] = [
+      RoomMember(
+        uid: _demoUid,
+        role: RoomMemberRole.owner,
+        joinedAt: DateTime.now().subtract(const Duration(days: 2)),
+        displayName: 'Demo',
+        handle: 'demo',
+      ),
+      RoomMember(
+        uid: friendUid,
+        role: RoomMemberRole.member,
+        joinedAt: DateTime.now().subtract(const Duration(days: 2)),
+        displayName: title,
+        handle: handle,
+      ),
+    ];
+  }
 
   @override
   bool get isConfigured => false;
@@ -332,6 +427,87 @@ class DemoMessengerBackend implements MessengerBackend {
   }
 
   @override
+  Future<List<AppUser>> listUserDirectory({String query = ''}) async {
+    final normalizedQuery = query.trim().toLowerCase();
+    final contacts = const [
+      AppUser(
+        uid: 'friend-1',
+        displayName: '김민지',
+        handle: 'minji_kim',
+        defaultSendMode: SendMode.confirm,
+      ),
+      AppUser(
+        uid: 'friend-2',
+        displayName: '이지훈',
+        handle: 'jihoon_lee',
+        defaultSendMode: SendMode.confirm,
+      ),
+      AppUser(
+        uid: 'friend-3',
+        displayName: '정유나',
+        handle: 'yuna_jung',
+        defaultSendMode: SendMode.confirm,
+      ),
+      AppUser(
+        uid: 'friend-4',
+        displayName: '최아린',
+        handle: 'arin_choi',
+        defaultSendMode: SendMode.confirm,
+      ),
+      AppUser(
+        uid: 'friend-5',
+        displayName: '박서준',
+        handle: 'seojun_park',
+        defaultSendMode: SendMode.confirm,
+      ),
+      AppUser(
+        uid: 'friend-6',
+        displayName: '한다은',
+        handle: 'daeun_han',
+        defaultSendMode: SendMode.confirm,
+      ),
+      AppUser(
+        uid: 'friend-7',
+        displayName: '한지수',
+        handle: 'jisoo_han',
+        defaultSendMode: SendMode.confirm,
+      ),
+    ];
+    if (normalizedQuery.isEmpty) {
+      return contacts;
+    }
+    return contacts
+        .where(
+          (contact) =>
+              contact.displayName.toLowerCase().contains(normalizedQuery) ||
+              contact.handle.toLowerCase().contains(normalizedQuery),
+        )
+        .toList();
+  }
+
+  @override
+  Future<AppUser> addFriendByHandle({required String handle}) async {
+    _requireUser();
+    final normalizedHandle = normalizeHandle(handle);
+    ensureValidHandle(normalizedHandle);
+    final matches = await listUserDirectory(query: normalizedHandle);
+    final friend = matches.firstWhere(
+      (user) => user.handle == normalizedHandle,
+      orElse: () => AppUser(
+        uid: normalizedHandle,
+        displayName: normalizedHandle,
+        handle: normalizedHandle,
+        defaultSendMode: SendMode.confirm,
+      ),
+    );
+    if (friend.uid == _demoUid || friend.handle == _currentUser?.handle) {
+      throw ArgumentError('자기 자신은 친구로 추가할 수 없습니다.');
+    }
+    _friendHandles.add(friend.handle);
+    return friend;
+  }
+
+  @override
   Future<ChatRoom> createRoom({
     required List<String> participantHandles,
     required RoomType type,
@@ -339,9 +515,12 @@ class DemoMessengerBackend implements MessengerBackend {
   }) async {
     _requireUser();
     final normalizedHandles = normalizeAndValidateHandles(participantHandles);
+    final fallbackTitle = type == RoomType.open
+        ? '새 오픈채팅'
+        : normalizedHandles.map((handle) => '@$handle').join(', ');
     final roomTitle = title?.trim().isNotEmpty == true
         ? title!.trim()
-        : normalizedHandles.map((handle) => '@$handle').join(', ');
+        : fallbackTitle;
     final room = ChatRoom(
       id: _uuid.v4(),
       type: type,
@@ -387,7 +566,7 @@ class DemoMessengerBackend implements MessengerBackend {
       id: token,
       roomId: roomId,
       token: token,
-      url: 'https://voice-messenger.local/invite/$token',
+      url: 'https://verbal.local/invite/$token',
       createdBy: user.uid,
       createdAt: DateTime.now(),
       approvalRequired: approvalRequired,
@@ -1066,7 +1245,7 @@ class DemoMessengerBackend implements MessengerBackend {
   }
 
   @override
-  Future<void> sendInstantVoiceMessage({
+  Future<String> sendInstantVoiceMessage({
     required String roomId,
     required String audioFilePath,
     required int durationMs,
@@ -1074,26 +1253,35 @@ class DemoMessengerBackend implements MessengerBackend {
     String language = 'ko-KR',
     String? transcriptOverride,
     String? replyToMessageId,
+    String? clientMessageId,
+    bool pendingAlreadyCreated = false,
+    bool forceServerSttCorrection = false,
+    bool skipInlineStt = false,
   }) async {
     final user = _requireUser();
     _incrementVoiceUsage(durationMs);
+    final initialTranscript = transcriptOverride?.trim() ?? '';
     final message = ChatMessage(
-      id: _uuid.v4(),
+      id: clientMessageId?.trim().isNotEmpty == true
+          ? clientMessageId!.trim()
+          : _uuid.v4(),
       senderId: user.uid,
       kind: MessageKind.voice,
-      text: '',
-      transcript: '',
+      text: initialTranscript,
+      transcript: initialTranscript,
       audioPath: audioFilePath,
       audioExpiresAt: _audioExpiresAt(roomId),
       audioRetentionDays: _audioRetentionDays(roomId),
       audioRetentionStatus: 'active',
       durationMs: durationMs,
-      sttStatus: SttStatus.processing,
+      sttStatus: initialTranscript.isNotEmpty
+          ? SttStatus.completed
+          : SttStatus.processing,
       sendMode: sendMode,
       createdAt: DateTime.now(),
       replyTo: _replyForMessage(roomId, replyToMessageId),
     );
-    _appendMessage(roomId, message, '음성 메시지');
+    _appendMessage(roomId, message, message.displayText);
 
     unawaited(
       Future<void>.delayed(const Duration(milliseconds: 400), () async {
@@ -1109,7 +1297,9 @@ class DemoMessengerBackend implements MessengerBackend {
         String transcript;
         SttStatus status;
         try {
-          transcript = transcriptOverride?.trim().isNotEmpty == true
+          transcript =
+              transcriptOverride?.trim().isNotEmpty == true &&
+                  !forceServerSttCorrection
               ? transcriptOverride!.trim()
               : await _transcribeOrFallback(
                   audioFilePath: audioFilePath,
@@ -1118,7 +1308,7 @@ class DemoMessengerBackend implements MessengerBackend {
                 );
           status = SttStatus.completed;
         } catch (_) {
-          transcript = '음성 변환에 실패했습니다.';
+          transcript = '';
           status = SttStatus.failed;
         }
 
@@ -1133,7 +1323,9 @@ class DemoMessengerBackend implements MessengerBackend {
             updatedAt: message.createdAt,
             lastMessage: LastMessage(
               kind: MessageKind.voice,
-              preview: transcript,
+              preview: transcript.isEmpty
+                  ? roomMessages[index].displayText
+                  : transcript,
               senderId: message.senderId,
               createdAt: message.createdAt,
             ),
@@ -1143,6 +1335,127 @@ class DemoMessengerBackend implements MessengerBackend {
         _emitMessages(roomId);
       }),
     );
+    return message.id;
+  }
+
+  @override
+  Future<void> createPendingVoiceMessage({
+    required String roomId,
+    required String messageId,
+    required int durationMs,
+    required SendMode sendMode,
+    String language = 'ko-KR',
+    String? transcriptOverride,
+    String? replyToMessageId,
+  }) async {
+    return;
+  }
+
+  @override
+  Future<DeepgramStreamingToken?> createDeepgramStreamingToken({
+    String language = 'ko-KR',
+    String? provider,
+  }) async {
+    return null;
+  }
+
+  @override
+  Future<VoiceInlineSttResult?> transcribeClientVoiceMessageInline({
+    required String roomId,
+    required String messageId,
+    required Uint8List audioBytes,
+    required String contentType,
+    required int durationMs,
+    String language = 'ko-KR',
+  }) async {
+    return null;
+  }
+
+  @override
+  Future<VoiceInlineSttResult?> transcribeVoiceAudioDraft({
+    required String roomId,
+    required Uint8List audioBytes,
+    required String contentType,
+    required int durationMs,
+    String language = 'ko-KR',
+  }) async {
+    return null;
+  }
+
+  @override
+  Future<void> updateClientVoiceTranscript({
+    required String roomId,
+    required String messageId,
+    required String transcript,
+  }) async {
+    final text = transcript.trim();
+    if (text.isEmpty) {
+      return;
+    }
+    final roomMessages = _messages[roomId];
+    if (roomMessages == null) {
+      return;
+    }
+    final index = roomMessages.indexWhere((item) => item.id == messageId);
+    if (index == -1 || roomMessages[index].kind != MessageKind.voice) {
+      return;
+    }
+    roomMessages[index] = roomMessages[index].copyWith(
+      text: text,
+      transcript: text,
+      sttStatus: SttStatus.completed,
+    );
+    _rooms.replaceWhere(
+      (room) => room.id == roomId,
+      (room) => room.copyWith(
+        lastMessage: LastMessage(
+          kind: MessageKind.voice,
+          preview: text,
+          senderId: roomMessages[index].senderId,
+          createdAt: roomMessages[index].createdAt,
+        ),
+      ),
+    );
+    _emitRooms();
+    _emitMessages(roomId);
+  }
+
+  @override
+  Future<void> recoverClientVoiceMessageTranscript({
+    required String roomId,
+    required String messageId,
+  }) async {
+    final roomMessages = _messages[roomId];
+    if (roomMessages == null) {
+      return;
+    }
+    final index = roomMessages.indexWhere((item) => item.id == messageId);
+    if (index == -1 || roomMessages[index].kind != MessageKind.voice) {
+      return;
+    }
+    final current = roomMessages[index];
+    if (current.voiceTranscriptText.trim().isNotEmpty) {
+      return;
+    }
+    const transcript = '음성 변환을 다시 시도하고 있습니다.';
+    roomMessages[index] = current.copyWith(
+      text: transcript,
+      transcript: transcript,
+      sttStatus: SttStatus.completed,
+    );
+    _rooms.replaceWhere(
+      (room) => room.id == roomId,
+      (room) => room.copyWith(
+        lastMessage: LastMessage(
+          kind: MessageKind.voice,
+          preview: transcript,
+          senderId: current.senderId,
+          createdAt: current.createdAt,
+        ),
+      ),
+    );
+    _emitRooms();
+    _emitMessages(roomId);
   }
 
   @override

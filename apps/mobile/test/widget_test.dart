@@ -2,12 +2,13 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:voice_messenger/main.dart';
-import 'package:voice_messenger/src/services/attachment_picker.dart';
-import 'package:voice_messenger/src/services/demo_backend.dart';
-import 'package:voice_messenger/src/services/handle_policy.dart';
-import 'package:voice_messenger/src/services/holiday_calendar.dart';
-import 'package:voice_messenger/src/services/location_picker.dart';
+import 'package:verbal/main.dart';
+import 'package:verbal/src/models/messenger_models.dart';
+import 'package:verbal/src/services/attachment_picker.dart';
+import 'package:verbal/src/services/demo_backend.dart';
+import 'package:verbal/src/services/handle_policy.dart';
+import 'package:verbal/src/services/holiday_calendar.dart';
+import 'package:verbal/src/services/location_picker.dart';
 
 void main() {
   setUp(() {
@@ -21,7 +22,7 @@ void main() {
         );
       }
       return PickedAttachment(
-        fileName: 'Voice Messenger Brief.pdf',
+        fileName: 'Verbal Brief.pdf',
         mimeType: 'application/pdf',
         sizeBytes: 2480000,
         bytes: Uint8List.fromList([1, 2, 3, 4]),
@@ -44,7 +45,7 @@ void main() {
   Future<void> openHome(WidgetTester tester) async {
     await tester.binding.setSurfaceSize(const Size(430, 860));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(VoiceMessengerApp(backend: DemoMessengerBackend()));
+    await tester.pumpWidget(VerbalApp(backend: DemoMessengerBackend()));
     await tester.pumpAndSettle();
     await tester.tap(find.byType(FilledButton).first);
     await tester.pumpAndSettle();
@@ -52,7 +53,7 @@ void main() {
 
   Future<void> openChat(WidgetTester tester) async {
     await openHome(tester);
-    await tester.tap(find.text('Minji'));
+    await tester.tap(find.text('김민지'));
     await tester.pumpAndSettle();
   }
 
@@ -102,6 +103,40 @@ void main() {
     expect(validateHandle('a' * 31), contains('3~30자'));
   });
 
+  test('voice message display text exposes transcript or STT state', () {
+    final processing = ChatMessage(
+      id: 'voice-processing',
+      senderId: 'me',
+      kind: MessageKind.voice,
+      text: '',
+      transcript: '',
+      audioPath: null,
+      durationMs: 4200,
+      sttStatus: SttStatus.processing,
+      sendMode: SendMode.instant,
+      createdAt: DateTime(2026),
+    );
+    expect(processing.displayText, '음성 변환 중...');
+
+    final failed = processing.copyWith(sttStatus: SttStatus.failed);
+    expect(failed.displayText, '음성 변환 실패');
+
+    final completed = processing.copyWith(
+      text: '오늘 오후에 이야기해요',
+      transcript: '오늘 오후에 이야기해요',
+      sttStatus: SttStatus.completed,
+    );
+    expect(completed.displayText, '오늘 오후에 이야기해요');
+
+    final placeholder = processing.copyWith(
+      text: '음성 메시지',
+      transcript: '',
+      sttStatus: SttStatus.completed,
+      deliveryStatus: MessageDeliveryStatus.sent,
+    );
+    expect(placeholder.displayText, '음성 변환 실패');
+  });
+
   test('holiday calendar returns country specific holidays', () {
     expect(
       HolidayCalendar.holidaysForDay(
@@ -136,8 +171,8 @@ void main() {
   testWidgets('demo mode opens the room list', (tester) async {
     await openHome(tester);
 
-    expect(find.text('Minji'), findsOneWidget);
-    expect(find.textContaining('Can we talk this evening?'), findsOneWidget);
+    expect(find.text('김민지'), findsOneWidget);
+    expect(find.textContaining('오늘 저녁에 통화 가능해?'), findsOneWidget);
     expect(find.text('Your note'), findsOneWidget);
     expect(find.text('메시지'), findsOneWidget);
     expect(find.text('채널'), findsOneWidget);
@@ -186,10 +221,7 @@ void main() {
     expect(find.text('초대 링크/QR'), findsOneWidget);
     await tester.tap(find.text('초대 링크/QR'));
     await tester.pumpAndSettle();
-    expect(
-      find.textContaining('voice-messenger.local/profile/demo'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('verbal.local/profile/demo'), findsOneWidget);
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -281,7 +313,7 @@ void main() {
     await tester.tap(find.byTooltip('메뉴'));
     await tester.pumpAndSettle();
     await tapSheetTile(tester, '앱 정보');
-    expect(find.text('Voice Messenger'), findsOneWidget);
+    expect(find.text('Verbal'), findsOneWidget);
     expect(find.text('1.0.0+1'), findsOneWidget);
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
@@ -302,6 +334,99 @@ void main() {
     expect(find.text('라이트 모드'), findsOneWidget);
     expect(find.text('다크 모드'), findsOneWidget);
   });
+
+  testWidgets(
+    'new chat flow uses normal chat for direct or group and separates open chat',
+    (tester) async {
+      await openHome(tester);
+
+      await tester.tap(find.byTooltip('새 메시지'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('채팅 시작'), findsOneWidget);
+      expect(find.text('일반채팅'), findsOneWidget);
+      expect(find.text('그룹채팅'), findsNothing);
+      expect(find.text('오픈채팅'), findsOneWidget);
+      expect(find.text('초대 링크로 참여'), findsOneWidget);
+
+      await tester.tap(find.text('일반채팅'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('new-room-friend-search-field')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('friend-select-jihoon_lee')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('friend-select-jihoon_lee')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('new-room-create-button')));
+      await tester.pumpAndSettle();
+      expect(find.text('이지훈'), findsWidgets);
+      expect(find.text('1:1 대화'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('새 메시지'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('일반채팅'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('friend-select-jihoon_lee')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('friend-select-yuna_jung')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('new-room-title-field')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('new-room-create-button')));
+      await tester.pumpAndSettle();
+      expect(find.text('그룹 대화'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('새 메시지'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('오픈채팅'));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('open-room-title-field')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('open-room-friend-search-field')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('friend-select-jihoon_lee')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('open-room-handles-field')),
+        findsOneWidget,
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('open-room-title-field')),
+        '런칭 준비 오픈채팅',
+      );
+      await tester.tap(find.byKey(const ValueKey('friend-select-jihoon_lee')));
+      await tester.pumpAndSettle();
+      expect(find.text('이지훈 @jihoon_lee'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('open-room-create-button')));
+      await tester.pumpAndSettle();
+      expect(find.text('오픈채팅 링크가 생성되었습니다'), findsOneWidget);
+      expect(find.textContaining('verbal.local/invite'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('open-room-copy-link-button')),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const ValueKey('open-room-enter-button')));
+      await tester.pumpAndSettle();
+      expect(find.text('런칭 준비 오픈채팅'), findsOneWidget);
+      expect(find.text('오픈채팅'), findsOneWidget);
+    },
+  );
 
   testWidgets('demo mode supports in-app calendar create edit and delete', (
     tester,
@@ -336,21 +461,29 @@ void main() {
       isEmpty,
     );
 
-    final next = DateTime.now().add(const Duration(days: 2));
+    var next = DateTime.now().add(const Duration(days: 1));
+    while (HolidayCalendar.holidaysForDay(
+      HolidayCountry.korea,
+      next,
+    ).isNotEmpty) {
+      next = next.add(const Duration(days: 1));
+    }
     final dateText =
         '${next.year}-${next.month.toString().padLeft(2, '0')}-${next.day.toString().padLeft(2, '0')}';
     await tester.enterText(find.byType(TextField).at(0), '제품 미팅');
     await tester.enterText(find.byType(TextField).at(1), '런칭 전 점검 항목 정리');
     await tester.enterText(find.byType(TextField).at(2), dateText);
     await tester.enterText(find.byType(TextField).at(3), '14:30');
-    await tester.enterText(find.byType(TextField).at(4), '45');
     await tester.pumpAndSettle();
+    tester.testTextInput.hide();
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('저장'));
     await tester.tap(find.text('저장'));
     await tester.pumpAndSettle();
 
-    expect(find.text('제품 미팅'), findsOneWidget);
+    expect(find.text('제품 미팅'), findsWidgets);
 
-    await tester.tap(find.text('제품 미팅'));
+    await tester.tap(find.text('제품 미팅').first);
     await tester.pumpAndSettle();
     expect(find.text('런칭 전 점검 항목 정리'), findsOneWidget);
     await tester.enterText(find.byType(TextField).at(0), '제품 미팅 수정');
@@ -359,9 +492,9 @@ void main() {
     await tester.tap(find.text('수정'));
     await tester.pumpAndSettle();
 
-    expect(find.text('제품 미팅 수정'), findsOneWidget);
+    expect(find.text('제품 미팅 수정'), findsWidgets);
 
-    await tester.tap(find.text('제품 미팅 수정'));
+    await tester.tap(find.text('제품 미팅 수정').first);
     await tester.pumpAndSettle();
     expect(find.text('상세 내용도 함께 수정'), findsOneWidget);
     await tester.tap(find.byTooltip('삭제'));
@@ -375,7 +508,7 @@ void main() {
   ) async {
     await openChat(tester);
 
-    await tester.longPress(find.text('Yes, 8 PM works for me.'));
+    await tester.longPress(find.text('네, 오후 8시 가능해요.'));
     await tester.pumpAndSettle();
     await tapSheetTile(tester, '수정');
 
@@ -395,13 +528,13 @@ void main() {
   ) async {
     await openChat(tester);
 
-    await tester.longPress(find.text('Yes, 8 PM works for me.'));
+    await tester.longPress(find.text('네, 오후 8시 가능해요.'));
     await tester.pumpAndSettle();
     await tapSheetTile(tester, '삭제');
 
     expect(find.text('대화 삭제'), findsNothing);
     expect(find.text('삭제된 메시지입니다.'), findsNothing);
-    expect(find.text('Yes, 8 PM works for me.'), findsNothing);
+    expect(find.text('네, 오후 8시 가능해요.'), findsNothing);
   });
 
   testWidgets('demo mode supports reactions, pinning, and chat search', (
@@ -409,28 +542,36 @@ void main() {
   ) async {
     await openChat(tester);
 
-    await tester.longPress(find.text('Yes, 8 PM works for me.'));
+    await tester.longPress(find.text('네, 오후 8시 가능해요.'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('👍'));
     await tester.pumpAndSettle();
 
     expect(find.text('👍 1'), findsOneWidget);
 
-    await tester.longPress(find.text('Yes, 8 PM works for me.'));
+    await tester.longPress(find.text('네, 오후 8시 가능해요.'));
     await tester.pumpAndSettle();
     await tapSheetTile(tester, '메시지 고정');
 
-    expect(find.text('고정됨'), findsOneWidget);
+    expect(find.text('고정된 메시지'), findsOneWidget);
+
+    await tester.longPress(find.text('고정된 메시지'));
+    await tester.pumpAndSettle();
+    expect(find.text('고정 해제'), findsOneWidget);
+
+    await tester.tap(find.text('고정 해제'));
+    await tester.pumpAndSettle();
+    expect(find.text('고정된 메시지'), findsNothing);
 
     await tapMoreMenuItem(tester, '대화 검색');
     await tester.enterText(
       find.byKey(const ValueKey('chat-search-field')),
-      'talk',
+      '통화',
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Can we talk this evening?'), findsOneWidget);
-    expect(find.text('Yes, 8 PM works for me.'), findsNothing);
+    expect(find.text('오늘 저녁에 통화 가능해?'), findsOneWidget);
+    expect(find.text('네, 오후 8시 가능해요.'), findsNothing);
   });
 
   testWidgets('demo mode supports chat calendar proposal voting and finalize', (
@@ -477,16 +618,16 @@ void main() {
     (tester) async {
       await openChat(tester);
 
-      await tester.longPress(find.text('Can we talk this evening?'));
+      await tester.longPress(find.text('오늘 저녁에 통화 가능해?'));
       await tester.pumpAndSettle();
       await tapSheetTile(tester, '영어로 번역');
-      expect(find.text('Can we talk this evening?'), findsWidgets);
+      expect(find.text('오늘 저녁에 통화 가능해?'), findsWidgets);
 
       await tester.tap(find.byTooltip('첨부'));
       await tester.pumpAndSettle();
       await tapSheetTile(tester, '파일');
       await scrollChatToBottom(tester);
-      expect(find.text('Voice Messenger Brief.pdf'), findsOneWidget);
+      expect(find.text('Verbal Brief.pdf'), findsOneWidget);
 
       await tester.tap(find.byTooltip('첨부'));
       await tester.pumpAndSettle();
@@ -535,10 +676,7 @@ void main() {
       await tester.ensureVisible(inviteButton);
       await tester.tap(inviteButton);
       await tester.pumpAndSettle();
-      expect(
-        find.textContaining('voice-messenger.local/invite'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('verbal.local/invite'), findsOneWidget);
     },
   );
 }

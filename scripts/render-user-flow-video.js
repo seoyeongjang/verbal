@@ -8,11 +8,11 @@ const {pathToFileURL} = require("node:url");
 
 const repoRoot = path.resolve(__dirname, "..");
 const outDir = path.join(repoRoot, "artifacts", "demo");
-const htmlPath = path.join(outDir, "voice_messenger_user_flow_demo.html");
-const rawWebmPath = path.join(outDir, "voice_messenger_user_flow_demo.raw.webm");
-const webmPath = path.join(outDir, "voice_messenger_user_flow_demo.webm");
-const previewPath = path.join(outDir, "voice_messenger_user_flow_demo_preview.png");
-const storyboardPath = path.join(outDir, "voice_messenger_user_flow_storyboard.md");
+const htmlPath = path.join(outDir, "verbal_user_flow_demo.html");
+const rawWebmPath = path.join(outDir, "verbal_user_flow_demo.raw.webm");
+const webmPath = path.join(outDir, "verbal_user_flow_demo.webm");
+const previewPath = path.join(outDir, "verbal_user_flow_demo_preview.png");
+const storyboardPath = path.join(outDir, "verbal_user_flow_storyboard.md");
 
 main().catch((error) => {
   console.error(error);
@@ -272,7 +272,7 @@ class CdpClient {
 }
 
 function storyboardMarkdown() {
-  return `# Voice Messenger Real-User Demo Storyboard
+  return `# Verbal Real-User Demo Storyboard
 
 This demo is a screen-only mobile flow, not an IR/pitch video.
 
@@ -295,7 +295,7 @@ function demoHtml() {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Voice Messenger User Flow Demo</title>
+  <title>Verbal User Flow Demo</title>
   <style>
     html, body { margin: 0; width: 100%; height: 100%; background: #111; overflow: hidden; }
     body { display: grid; place-items: center; }
@@ -458,7 +458,7 @@ function signup(t) {
   const p = seg(t, 0, 8);
   clear("#fff");
   statusBar();
-  text("Voice Messenger", 54, 132, 54, 900, "#111");
+  text("Verbal", 54, 132, 54, 900, "#111");
   text("전화번호로 빠르게 시작하세요", 54, 206, 36, 700, "#667085");
   fillRound(54, 316, 972, 98, 24, "#F5F6F8");
   text("+82 10 4821 0927", 92, 343, 42, 900, "#111");

@@ -2,7 +2,7 @@
 
 ## Positioning
 
-Voice Messenger is a mobile messenger for Korean everyday conversations where speaking is the default fast path. The user records a short message, the app converts it to Korean text, and the recipient can either read the text or play the original audio.
+Verbal is a mobile messenger for Korean everyday conversations where speaking is the default fast path. The user records a short message, the app converts it to Korean text, and the recipient can either read the text or play the original audio.
 
 ## MVP Scope
 
@@ -11,8 +11,9 @@ Voice Messenger is a mobile messenger for Korean everyday conversations where sp
 - Firestore realtime room list and message list.
 - Text message sending.
 - Voice message recording.
-- Confirm mode: record, transcribe, edit text, send audio plus text.
-- Instant mode: record, send immediately, update transcript asynchronously.
+- Voice auto-send: record, transcribe, then send audio plus transcript without a
+  confirmation sheet.
+- STT recovery: retry failed STT or manually enter a transcript before sending.
 - Privacy-preserving push notification body.
 - Message deletion and report function endpoints.
 
@@ -26,7 +27,7 @@ Voice Messenger is a mobile messenger for Korean everyday conversations where sp
 
 - Voice send success rate.
 - Average STT latency.
-- Transcript edit rate.
+- STT recovery rate.
 - Audio playback rate.
 - 1-day default audio retention adoption.
 - STT cost per DAU and cache hit rate.

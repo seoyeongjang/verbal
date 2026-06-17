@@ -1,0 +1,16 @@
+{
+  "name": "verbal-deepgram-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.6.0",
+    "ws": "^8.18.0"
+  }
+}

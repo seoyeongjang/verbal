@@ -1,103 +1,224 @@
 # Local STT Testing
 
-Use this mode to test the real Deepgram speech-to-text path on a local PC before Google Play registration and before Firebase Functions deployment.
+This document describes the current Verbal STT test paths. The important distinction is:
 
-## What This Tests
+- `sendTapToPendingBubbleMs`: how quickly the user sees a sent voice bubble.
+- `sendTapToTranscriptAvailableMs`: how quickly the transcript text is available.
+- `totalFinalizeMs`: how long audio upload/copy/finalization takes.
 
-The local STT path is:
+The product goal is GPT Voice-like STT latency. The free path currently keeps the send UI responsive, but it does not consistently produce final transcript text in under one second.
+
+## Current Verified Baseline
+
+Verified on a real Android device on 2026-06-12:
 
 ```text
-Flutter web recording -> local Node STT server -> Deepgram Pre-recorded Audio API -> Flutter review sheet -> chat message
+Device: SM_F711N
+Package: com.voicebeta.verbal
+Build: debug
+Path: Android PCM capture -> optimistic message -> inline/server STT fallback
 ```
 
-This validates:
+Latest measured result:
 
-- microphone permission and recording on the local PC
-- Korean speech recognition quality with Deepgram
-- confirm-before-send transcript review
-- instant-send pending-to-completed flow
-- local audio playback
-- UI behavior needed before store screenshots and internal testing
+```text
+sendTapToPendingBubbleMs=2
+pendingWriteMs=150
+sendTapToTranscriptAvailableMs=-1 at send time
+inline STT totalMs=2097
+server STT ms=1151
+totalFinalizeMs=3118
+```
 
-This does not validate Firebase Phone Auth, Firebase Storage, Cloud Functions deployment, FCM, or production Firestore rules.
+Conclusion:
 
-## One-Time Setup
+- Voice bubble display is effectively instant.
+- Transcript completion is about 2 seconds in this measured test.
+- Audio finalization is about 3 seconds in this measured test.
+- This is not yet GPT Voice-level transcript latency.
 
-Create a local secret file at the repo root:
+## Free Android Path
+
+The default mobile path is:
+
+```text
+Flutter mobile recording
+-> Android PCM capture
+-> local/device STT attempt while recording
+-> optimistic pending voice message
+-> inline Cloud Function STT
+-> Firebase Storage finalization
+-> Firestore transcript update
+```
+
+This path requires no OpenAI key. It is suitable for beta testing, but Android `SpeechRecognizer` may return no partial transcript for short/noisy Korean utterances. When that happens, the transcript is filled by server STT after the bubble is already visible.
+
+Run the default build:
 
 ```powershell
-Copy-Item .env.example .env.local
-notepad .env.local
+C:\Users\jangs\develop\flutter\bin\flutter.bat build apk --debug
+& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" install -r apps\mobile\build\app\outputs\flutter-apk\app-debug.apk
 ```
 
-Set:
+## Deepgram Relay Path
+
+The Deepgram relay path is:
 
 ```text
-DEEPGRAM_API_KEY=...
-DEEPGRAM_MODEL=nova-3
-DEEPGRAM_LANGUAGE=ko-KR
-DEEPGRAM_SMART_FORMAT=true
-DEEPGRAM_KEYTERMS=
-LOCAL_STT_PORT=8787
+Flutter mobile recording
+-> Firebase ID token
+-> Verbal relay
+-> Deepgram WebSocket
+-> live transcript
+-> optimistic voice message
 ```
 
-The Deepgram free credit is suitable for early beta testing. Monitor usage in the Deepgram dashboard before widening the test group.
+Deepgram live streaming is now the default Korean voice-message STT attempt.
+The app first tries live streaming while recording, then falls back to PCM
+device STT and server-side correction if the live token or socket is not
+available.
 
-If specific Korean names, product names, or room names are repeatedly misrecognized, add them as comma-separated keyterms, for example:
-
-```text
-DEEPGRAM_KEYTERMS=민지,보이스메신저,voice_messenger
-```
-
-## Run
-
-From the repo root:
+Local USB relay override test:
 
 ```powershell
-.\scripts\run-local-stt-web.ps1
+$env:DEEPGRAM_API_KEY = "<local secret>"
+$env:PORT = "8787"
+node services/deepgram-relay/server.js
+& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" reverse tcp:8787 tcp:8787
+C:\Users\jangs\develop\flutter\bin\flutter.bat build apk --debug `
+  --dart-define=VERBAL_REALTIME_STT_PROVIDER=deepgram `
+  --dart-define=VERBAL_DEEPGRAM_STREAMING_STT=true `
+  --dart-define=VERBAL_USE_REALTIME_STT_FOR_KO=true `
+  --dart-define=VERBAL_DEEPGRAM_RELAY_URL=http://127.0.0.1:8787/stt
 ```
 
-Open:
+For production-like builds without `VERBAL_DEEPGRAM_RELAY_URL`, the app uses the
+project Cloud Run relay by default:
 
 ```text
-http://127.0.0.1:55173
+https://live---verbal-deepgram-relay-uhnknahebq-du.a.run.app
 ```
 
-The script starts:
+The relay validates the Firebase ID token, then connects to Deepgram with the
+server-side `DEEPGRAM_API_KEY` secret. Do not ship the Deepgram key in the
+mobile app. `createDeepgramStreamingToken` remains a fallback path, but the
+current Default-role Deepgram key cannot call `/auth/grant` and returns
+`403 Insufficient permissions`.
 
-- local STT server at `http://127.0.0.1:8787/transcribe`
-- Flutter web app with `VOICE_MESSENGER_LOCAL_STT=true`
+Provider selection is `auto` by default:
 
-## Test Order
+```text
+OpenAI Realtime relay first -> Deepgram relay fallback -> inline/server STT fallback
+```
 
-1. Click `데모로 시작`.
-2. Open the `민지` room.
-3. Keep mode as `확인 후 전송`.
-4. Click the microphone button.
-5. Allow microphone permission in the browser.
-6. Say a short Korean phrase, for example `민지야 지금 뭐해?`.
-7. Stop recording.
-8. Confirm the review sheet shows the recognized transcript.
-9. Edit the text if needed and send it.
-10. Verify the sent voice bubble includes the final text.
-11. Switch the top-right send mode to `즉시 전송`.
-12. Record another phrase.
-13. Verify the voice bubble first shows a processing state and then updates to the transcript.
+If the relay has no `OPENAI_API_KEY`, the app should log:
+
+```text
+voice_stt_preconnect_fallback_ready primary=openai_realtime provider=deepgram_streaming
+```
+
+Once an `OPENAI_API_KEY` secret is added to the relay, the same app can use the
+OpenAI realtime path without rebuilding for a separate provider.
+
+## OpenAI Realtime Path
+
+The OpenAI realtime path is the intended GPT Voice-like test path:
+
+```text
+Flutter mobile recording
+-> Firebase ID token
+-> Verbal relay
+-> OpenAI Realtime transcription WebSocket
+-> transcript delta while recording
+-> optimistic voice message with transcript ready at send time
+```
+
+The app never stores `OPENAI_API_KEY`. The key must stay in the relay process or hosted relay environment.
+
+One-time setup:
+
+```text
+OPENAI_API_KEY=...
+```
+
+Add it to `.env.local`, then run:
+
+```powershell
+.\scripts\run-openai-realtime-stt-android.ps1
+```
+
+The script:
+
+- starts `services/deepgram-relay/server.js` on port `8788`
+- checks `/healthz` for OpenAI readiness
+- runs `adb reverse tcp:8788 tcp:8788`
+- builds the app with `VERBAL_REALTIME_STT_PROVIDER=openai`
+- installs and launches `com.voicebeta.verbal`
+
+### Mock Realtime Verification
+
+If `OPENAI_API_KEY` is not available yet, use mock mode to verify that the app can receive streaming transcript text before send:
+
+```powershell
+.\scripts\run-openai-realtime-stt-android.ps1 -Mock -RelayPort 8791
+```
+
+Mock mode does not call OpenAI. It validates the mobile recording, Firebase ID token, relay WebSocket, transcript delta handling, optimistic message creation, and Firestore write path.
+
+Mock verification on 2026-06-12:
+
+```text
+provider=openai_realtime
+recordStartToFirstPartialMs=529
+firstAudioSentToFirstPartialMs=384
+finalTranscriptReadyBeforeSend=true
+sendTapToPendingBubbleMs=2
+sendTapToTranscriptAvailableMs=2
+pendingWriteMs=380
+totalFinalizeMs=2415
+```
+
+This proves that the Verbal app pipeline can handle GPT-like realtime transcript timing. It does not prove the real OpenAI API latency until `OPENAI_API_KEY` is configured and the same test is repeated without `-Mock`.
+
+Expected verification logs:
+
+```text
+voice_stt_provider_started provider=openai_realtime
+voice_send_client_timing ... sttProvider=openai_realtime ...
+finalTranscriptReadyBeforeSend=true
+sendTapToPendingBubbleMs<1000
+sendTapToTranscriptAvailableMs<1000
+```
+
+Automated mock measurement:
+
+```powershell
+.\scripts\measure-openai-realtime-stt-android.ps1 -Mock -RelayPort 8792
+```
+
+The measurement script installs the OpenAI realtime build, opens the app, taps
+record/send on the Android device, parses `voice_send_client_timing`, and fails
+unless both the bubble and transcript thresholds pass. A real OpenAI validation
+must be repeated without `-Mock` after `OPENAI_API_KEY` is configured.
+
+The same Flutter streaming adapter is reused for both Deepgram and OpenAI relay responses because the relay normalizes OpenAI transcript events into Deepgram-like `Results` payloads.
 
 ## Troubleshooting
 
-- If the review sheet still shows `음성 메시지 초안입니다`, the app is running plain demo mode. Run `.\scripts\run-local-stt-web.ps1`.
-- If `DEEPGRAM_API_KEY is not configured` appears, add the key to `.env.local`.
-- If the browser cannot reach STT, check `dist/logs/local-stt-server.err.log`.
-- If microphone permission does not appear, open Chrome/Edge site settings for `127.0.0.1` and allow microphone access.
-- If the transcript is poor, test with shorter utterances first, then compare quiet and noisy environments.
+- If `OPENAI_API_KEY is missing` appears, add it to `.env.local`.
+- If you only need to validate the app pipeline before adding a key, run with `-Mock`.
+- If relay health shows `"openai": false`, the relay process did not receive `OPENAI_API_KEY`.
+- If Android cannot connect to `127.0.0.1`, rerun `adb reverse tcp:8788 tcp:8788`.
+- If the bubble appears quickly but text appears later, the app is not receiving live transcript deltas before send.
+- If logs show `finalTranscriptReadyBeforeSend=false`, the current path is still not GPT Voice-level.
 
-## Production Path
+## Production Notes
 
-The production STT path is:
+For production, host the relay outside the mobile app and set:
 
-```text
-Flutter mobile app -> Firebase Storage -> createTranscriptionDraft Cloud Function -> Deepgram STT -> Firestore message
+```powershell
+--dart-define=VERBAL_REALTIME_STT_PROVIDER=openai
+--dart-define=VERBAL_DEEPGRAM_RELAY_URL=https://<relay-host>/openai-stt
 ```
 
-That path requires Firebase Blaze, Storage, Functions deployment, and `DEEPGRAM_API_KEY` configured as a Firebase Functions secret.
+The relay must validate Firebase ID tokens before proxying audio to OpenAI. Never ship OpenAI or Deepgram API keys in the mobile app.

@@ -1,5 +1,5 @@
 {
-  "name": "voice-messenger-functions",
+  "name": "verbal-functions",
   "private": true,
   "main": "lib/index.js",
   "engines": {
@@ -11,9 +11,10 @@
     "firebase": "node scripts/firebase-cli.js",
     "local:stt": "node scripts/local-stt-server.js",
     "serve": "npm run build && node scripts/firebase-cli.js emulators:start --only functions,firestore,storage,auth",
-    "emulators:check": "node scripts/firebase-cli.js emulators:exec --project demo-voice-messenger --only firestore,storage \"cmd /c echo rules-ok\"",
-    "rules:test": "node scripts/firebase-cli.js emulators:exec --project demo-voice-messenger --only firestore,storage \"node functions/scripts/security-rules-test.js\"",
+    "emulators:check": "node scripts/firebase-cli.js emulators:exec --project demo-verbal --only firestore,storage \"cmd /c echo rules-ok\"",
+    "rules:test": "node scripts/firebase-cli.js emulators:exec --project demo-verbal --only firestore,storage \"node functions/scripts/security-rules-test.js\"",
     "smoke:prod-e2e": "node scripts/production-e2e-smoke.js",
+    "verify:deepgram-streaming": "node scripts/verify-deepgram-streaming-token.js",
     "deploy": "node scripts/firebase-cli.js deploy --only functions,firestore:rules,firestore:indexes,storage",
     "deploy:firestore": "node scripts/firebase-cli.js deploy --only firestore:rules,firestore:indexes --project voice-messenger-jangs-260522",
     "deploy:storage": "node scripts/firebase-cli.js deploy --only storage --project voice-messenger-jangs-260522",

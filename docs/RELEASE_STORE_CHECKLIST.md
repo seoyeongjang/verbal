@@ -4,10 +4,11 @@ Korean translation: `docs/ko/RELEASE_STORE_CHECKLIST.md`
 
 ## Store Listing Inputs
 
-- App name: Voice Messenger.
+- App name: Verbal.
 - Category: communication/social.
-- Short description: voice-first messenger with STT transcript review.
-- Screenshots: auth, home, direct chat, voice review, room info, invite QR.
+- Short description: voice-first messenger with automatic STT transcripts.
+- Screenshots: auth, home, direct chat, voice message with transcript, calendar,
+  room info, invite QR.
 - Contact email and support URL.
 - Privacy policy URL.
 - Data deletion URL or in-app deletion instructions.

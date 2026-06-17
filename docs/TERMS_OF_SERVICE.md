@@ -4,7 +4,7 @@ Korean translation: `docs/ko/TERMS_OF_SERVICE.md`
 
 ## Acceptable Use
 
-Users may not use Voice Messenger for spam, harassment, illegal content,
+Users may not use Verbal for spam, harassment, illegal content,
 impersonation, malware, or attempts to disrupt the service.
 
 ## Messaging
@@ -16,8 +16,8 @@ sender deletes the message or account deletion policy applies.
 ## Voice Transcription
 
 STT is provided to improve messaging usability. Transcripts may be inaccurate;
-users can edit transcripts before sending in review mode and can manually
-recover failed STT results.
+voice messages are sent automatically after STT succeeds, and users can retry
+STT or manually enter a transcript when STT fails.
 
 ## Safety
 

@@ -33,6 +33,18 @@
 - Client reads are allowed only for the owner. Client create, update, and delete
   are blocked; all writes go through Cloud Functions.
 
+`users/{uid}/friends/{friendUid}`
+
+- `uid`: friend user ID, same as `{friendUid}`.
+- `displayName`: cached friend display name for the picker.
+- `handle`: cached friend handle.
+- `defaultSendMode`: cached send-mode preference, currently used for display
+  compatibility.
+- `photoUrl`: optional cached profile image.
+- `addedAt`, `updatedAt`.
+- Client reads are allowed only for the owner. Client writes are blocked; friend
+  additions go through `addFriendByHandle`.
+
 `handles/{handle}`
 
 - `uid`: owner user ID.
@@ -148,7 +160,7 @@
 
 ## Storage
 
-- `voice_drafts/{uid}/{draftId}.m4a`: temporary audio awaiting message review or
+- `voice_drafts/{uid}/{draftId}.m4a`: temporary audio awaiting message STT or
   calendar intent parsing.
 - `voice_messages/{roomId}/{messageId}.m4a`: sent voice message audio.
 
@@ -156,11 +168,17 @@
 
 The mobile app writes audio files to Storage, then calls Cloud Functions. Message documents are created by Functions only, which keeps participant checks, transcript status, notification behavior, usage monitoring, and audio retention centralized.
 
+Friend additions are stored under `users/{uid}/friends/{friendUid}` through
+`addFriendByHandle`. Room creation still uses participant handles, but the
+mobile picker prefers the caller's saved friends when available and falls back
+to the user directory for discovery/search.
+
 Calendar events are stored separately from chat messages under
 `users/{uid}/calendarEvents/{eventId}`. Voice calendar commands are transcribed
-and parsed by `createCalendarIntentDraft`, shown to the user for confirmation,
-then saved by `createCalendarEvent`; users can edit the title, detailed notes,
-date, time, and duration. Update and hard delete also go through Functions.
+and parsed by `createCalendarIntentDraft`; complete title/date/time commands are
+saved immediately by `createCalendarEvent`, while incomplete commands are rejected
+with a retry prompt. Users can edit the title, detailed notes, date, time, and
+duration after creation. Update and hard delete also go through Functions.
 Country holidays are a display overlay derived from the user's
 `holidayCountryCode`; they are not written into `calendarEvents`.
 

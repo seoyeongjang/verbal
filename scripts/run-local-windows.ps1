@@ -35,7 +35,7 @@ try {
   & $flutter pub get
   & $flutter run `
     -d windows `
-    --dart-define=VOICE_MESSENGER_DEMO=true
+    --dart-define=VERBAL_DEMO=true
 }
 finally {
   Pop-Location

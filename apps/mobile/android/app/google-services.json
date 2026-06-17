@@ -7,9 +7,9 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:203811587610:android:713b3d7faece49f920f3a3",
+        "mobilesdk_app_id": "1:203811587610:android:60b60d74b332290520f3a3",
         "android_client_info": {
-          "package_name": "com.voicebeta.voice_messenger"
+          "package_name": "com.voicebeta.verbal"
         }
       },
       "oauth_client": [],

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as auth;
@@ -11,7 +12,53 @@ import 'package:uuid/uuid.dart';
 import '../models/messenger_models.dart';
 import 'audio_storage_upload.dart';
 import 'handle_policy.dart';
+import 'local_audio_bytes.dart';
 import 'messenger_backend.dart';
+import 'realtime_relay_health.dart';
+
+String _voiceTranscriptValue(String? value) {
+  final text = value?.trim() ?? '';
+  if (text.isEmpty) {
+    return '';
+  }
+  const placeholders = {
+    '\uC74C\uC131 \uBA54\uC2DC\uC9C0',
+    'Voice message',
+    '\uC74C\uC131 \uBCC0\uD658 \uC911...',
+    '\uC74C\uC131 \uBCC0\uD658 \uB300\uAE30 \uC911...',
+    '\uC74C\uC131 \uBCC0\uD658 \uC2E4\uD328',
+    '\uC74C\uC131 \uBCC0\uD658\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.',
+    '\uC74C\uC131 \uBCC0\uD658 \uACB0\uACFC \uC5C6\uC74C',
+    '\uC74C\uC131 \uBCC0\uD658 \uACB0\uACFC\uAC00 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.',
+  };
+  const mojibakeSignals = {
+    '\uFFFD',
+    '???',
+    '\u7650',
+    '\u7B4C',
+    '\u56A5',
+    '\u91CE',
+    '\u63F6',
+    '\u69AE',
+    '\u63F4',
+    '\u6FE1',
+    '\u5A9B',
+  };
+  final hasCorruptedPlaceholder =
+      RegExp(r'\?{3,}').hasMatch(text) && text.length > 12 ||
+      mojibakeSignals.any(text.contains);
+  return placeholders.contains(text) || hasCorruptedPlaceholder ? '' : text;
+}
+
+class _RealtimeProviderHealthCacheEntry {
+  const _RealtimeProviderHealthCacheEntry({
+    required this.available,
+    required this.expiresAt,
+  });
+
+  final bool available;
+  final DateTime expiresAt;
+}
 
 class FirebaseMessengerBackend implements MessengerBackend {
   FirebaseMessengerBackend({
@@ -39,6 +86,8 @@ class FirebaseMessengerBackend implements MessengerBackend {
   final FirebaseMessaging _messaging;
   final FirebaseFunctions _functions;
   final _uuid = const Uuid();
+  final _realtimeProviderHealthCache =
+      <String, _RealtimeProviderHealthCacheEntry>{};
 
   @override
   bool get isConfigured => true;
@@ -335,6 +384,66 @@ class FirebaseMessengerBackend implements MessengerBackend {
   }
 
   @override
+  Future<List<AppUser>> listUserDirectory({String query = ''}) async {
+    final current = _requireUser();
+    final normalizedQuery = query.trim().toLowerCase();
+    if (normalizedQuery.isEmpty) {
+      final friendsSnapshot = await _firestore
+          .collection('users')
+          .doc(current.uid)
+          .collection('friends')
+          .orderBy('displayName')
+          .limit(80)
+          .get();
+      final friends = friendsSnapshot.docs
+          .map((doc) => AppUser.fromMap(doc.id, doc.data()))
+          .where((user) => user.hasProfile)
+          .toList();
+      if (friends.isNotEmpty) {
+        friends.sort((a, b) => a.displayName.compareTo(b.displayName));
+        return friends;
+      }
+    }
+    final snapshot = await _firestore
+        .collection('users')
+        .orderBy('displayName')
+        .limit(80)
+        .get();
+    final users = snapshot.docs
+        .where((doc) => doc.id != current.uid)
+        .map((doc) => AppUser.fromMap(doc.id, doc.data()))
+        .where((user) => user.hasProfile)
+        .where((user) {
+          if (normalizedQuery.isEmpty) {
+            return true;
+          }
+          return user.displayName.toLowerCase().contains(normalizedQuery) ||
+              user.handle.toLowerCase().contains(normalizedQuery);
+        })
+        .toList();
+    users.sort((a, b) => a.displayName.compareTo(b.displayName));
+    return users;
+  }
+
+  @override
+  Future<AppUser> addFriendByHandle({required String handle}) async {
+    final normalizedHandle = normalizeHandle(handle);
+    ensureValidHandle(normalizedHandle);
+    final result = await _call('addFriendByHandle', {
+      'handle': normalizedHandle,
+    });
+    final friend = result['friend'];
+    if (friend is Map) {
+      return AppUser.fromMap(
+        (friend['uid'] as String?) ?? '',
+        Map<String, dynamic>.from(friend),
+      );
+    }
+    final users = await listUserDirectory(query: normalizedHandle);
+    return users.firstWhere((user) => user.handle == normalizedHandle);
+  }
+
+  @override
   Future<ChatRoom> createRoom({
     required List<String> participantHandles,
     required RoomType type,
@@ -452,11 +561,27 @@ class FirebaseMessengerBackend implements MessengerBackend {
     required String text,
     String? replyToMessageId,
   }) async {
-    final data = <String, dynamic>{'roomId': roomId, 'text': text.trim()};
-    if (replyToMessageId != null) {
-      data['replyToMessageId'] = replyToMessageId;
+    final trimmed = text.trim();
+    if (trimmed.isEmpty || trimmed.length > 4000) {
+      throw StateError('Text message length is invalid.');
     }
-    await _call('sendTextMessage', data);
+    try {
+      await _sendTextMessageDirect(
+        roomId: roomId,
+        text: trimmed,
+        replyToMessageId: replyToMessageId,
+      );
+    } on FirebaseException catch (error) {
+      if (error.code != 'permission-denied' &&
+          error.code != 'failed-precondition') {
+        rethrow;
+      }
+      final data = <String, dynamic>{'roomId': roomId, 'text': trimmed};
+      if (replyToMessageId != null) {
+        data['replyToMessageId'] = replyToMessageId;
+      }
+      await _call('sendTextMessage', data);
+    }
   }
 
   @override
@@ -513,6 +638,54 @@ class FirebaseMessengerBackend implements MessengerBackend {
       data['replyToMessageId'] = replyToMessageId;
     }
     await _call('sendAttachmentMessage', data);
+  }
+
+  Future<void> _sendTextMessageDirect({
+    required String roomId,
+    required String text,
+    String? replyToMessageId,
+  }) async {
+    final user = _requireUser();
+    final roomRef = _firestore.collection('rooms').doc(roomId);
+    final messageRef = roomRef.collection('messages').doc();
+    final replyTo = await _replyToMap(roomRef, replyToMessageId);
+    await messageRef.set({
+      'senderId': user.uid,
+      'kind': MessageKind.text.name,
+      'text': text,
+      'transcript': '',
+      'audioPath': null,
+      'durationMs': 0,
+      'sttStatus': SttStatus.none.name,
+      'sendMode': SendMode.confirm.name,
+      'replyTo': replyTo,
+      'deliveryStatus': MessageDeliveryStatus.sent.name,
+      'clientCreated': true,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<Map<String, dynamic>?> _replyToMap(
+    DocumentReference<Map<String, dynamic>> roomRef,
+    String? replyToMessageId,
+  ) async {
+    final id = replyToMessageId?.trim();
+    if (id == null || id.isEmpty) {
+      return null;
+    }
+    final snapshot = await roomRef.collection('messages').doc(id).get();
+    final data = snapshot.data();
+    if (!snapshot.exists || data == null || data['deletedAt'] != null) {
+      return null;
+    }
+    final message = ChatMessage.fromMap(snapshot.id, data);
+    final preview = message.displayText.trim();
+    return {
+      'messageId': snapshot.id,
+      'senderId': message.senderId,
+      'preview': preview.length > 120 ? preview.substring(0, 120) : preview,
+    };
   }
 
   @override
@@ -636,12 +809,13 @@ class FirebaseMessengerBackend implements MessengerBackend {
   }) async {
     final user = _requireUser();
     final draftId = _uuid.v4();
-    final storagePath = 'voice_drafts/${user.uid}/$draftId.m4a';
+    final extension = _audioExtensionForPath(audioFilePath);
+    final storagePath = 'voice_drafts/${user.uid}/$draftId$extension';
     await uploadAudioFile(
       ref: _storage.ref(storagePath),
       audioFilePath: audioFilePath,
       metadata: SettableMetadata(
-        contentType: 'audio/mp4',
+        contentType: _audioContentTypeForExtension(extension),
         customMetadata: {
           'ownerId': user.uid,
           'durationMs': '$durationMs',
@@ -673,12 +847,13 @@ class FirebaseMessengerBackend implements MessengerBackend {
   }) async {
     final user = _requireUser();
     final draftId = _uuid.v4();
-    final storagePath = 'voice_drafts/${user.uid}/calendar_$draftId.m4a';
+    final extension = _audioExtensionForPath(audioFilePath);
+    final storagePath = 'voice_drafts/${user.uid}/calendar_$draftId$extension';
     await uploadAudioFile(
       ref: _storage.ref(storagePath),
       audioFilePath: audioFilePath,
       metadata: SettableMetadata(
-        contentType: 'audio/mp4',
+        contentType: _audioContentTypeForExtension(extension),
         customMetadata: {
           'ownerId': user.uid,
           'durationMs': '$durationMs',
@@ -770,7 +945,7 @@ class FirebaseMessengerBackend implements MessengerBackend {
   }
 
   @override
-  Future<void> sendInstantVoiceMessage({
+  Future<String> sendInstantVoiceMessage({
     required String roomId,
     required String audioFilePath,
     required int durationMs,
@@ -778,39 +953,770 @@ class FirebaseMessengerBackend implements MessengerBackend {
     String language = 'ko-KR',
     String? transcriptOverride,
     String? replyToMessageId,
+    String? clientMessageId,
+    bool pendingAlreadyCreated = false,
+    bool forceServerSttCorrection = false,
+    bool skipInlineStt = false,
   }) async {
     final user = _requireUser();
-    final messageId = _uuid.v4();
-    final storagePath = 'voice_drafts/${user.uid}/$messageId.m4a';
-    await uploadAudioFile(
-      ref: _storage.ref(storagePath),
-      audioFilePath: audioFilePath,
-      metadata: SettableMetadata(
-        contentType: 'audio/mp4',
-        customMetadata: {
-          'ownerId': user.uid,
-          'durationMs': '$durationMs',
-          'language': language,
-        },
+    final messageId = clientMessageId?.trim().isNotEmpty == true
+        ? clientMessageId!.trim()
+        : _uuid.v4();
+    final extension = _audioExtensionForPath(audioFilePath);
+    final roomRef = _firestore.collection('rooms').doc(roomId);
+    final messageRef = roomRef.collection('messages').doc(messageId);
+    final manualTranscript = _voiceTranscriptValue(transcriptOverride);
+    if (pendingAlreadyCreated) {
+      unawaited(
+        _finalizePendingVoiceMessage(
+          ownerUid: user.uid,
+          roomId: roomId,
+          messageId: messageId,
+          audioFilePath: audioFilePath,
+          extension: extension,
+          durationMs: durationMs,
+          language: language,
+          transcriptOverride: manualTranscript,
+          forceServerSttCorrection: forceServerSttCorrection,
+          skipInlineStt: skipInlineStt,
+        ),
+      );
+    } else {
+      unawaited(
+        _createAndFinalizePendingVoiceMessage(
+          ownerUid: user.uid,
+          roomId: roomId,
+          roomRef: roomRef,
+          messageRef: messageRef,
+          messageId: messageId,
+          audioFilePath: audioFilePath,
+          extension: extension,
+          durationMs: durationMs,
+          sendMode: sendMode,
+          language: language,
+          transcriptOverride: manualTranscript,
+          replyToMessageId: replyToMessageId,
+          forceServerSttCorrection: forceServerSttCorrection,
+          skipInlineStt: skipInlineStt,
+        ),
+      );
+    }
+    return messageId;
+  }
+
+  @override
+  Future<void> createPendingVoiceMessage({
+    required String roomId,
+    required String messageId,
+    required int durationMs,
+    required SendMode sendMode,
+    String language = 'ko-KR',
+    String? transcriptOverride,
+    String? replyToMessageId,
+  }) async {
+    final user = _requireUser();
+    final roomRef = _firestore.collection('rooms').doc(roomId);
+    final messageRef = roomRef.collection('messages').doc(messageId);
+    await _createPendingVoiceMessage(
+      ownerUid: user.uid,
+      roomId: roomId,
+      roomRef: roomRef,
+      messageRef: messageRef,
+      messageId: messageId,
+      durationMs: durationMs,
+      sendMode: sendMode,
+      language: language,
+      transcriptOverride: _voiceTranscriptValue(transcriptOverride),
+      replyToMessageId: replyToMessageId,
+    );
+  }
+
+  @override
+  Future<DeepgramStreamingToken?> createDeepgramStreamingToken({
+    String language = 'ko-KR',
+    String? provider,
+  }) async {
+    final normalizedProvider = _normalizeRealtimeProvider(provider);
+    final relayUrl = _deepgramRelayUrl(language, provider: normalizedProvider);
+    final tokenProvider = _effectiveRealtimeProvider(normalizedProvider);
+    if (relayUrl != null) {
+      try {
+        if (tokenProvider == 'openai' &&
+            !await _isRealtimeRelayProviderAvailable('openai')) {
+          debugPrint('Realtime relay provider unavailable by health: openai');
+          return null;
+        }
+        final idToken = await _requireUser().getIdToken();
+        if (idToken == null || idToken.trim().isEmpty) {
+          return null;
+        }
+        return DeepgramStreamingToken(
+          accessToken: idToken,
+          url: relayUrl,
+          expiresIn: 55 * 60,
+          language: language,
+          model: tokenProvider == 'openai' ? 'gpt-realtime-whisper' : 'nova-3',
+          sampleRate: 16000,
+          channels: 1,
+          encoding: 'linear16',
+        );
+      } catch (error) {
+        debugPrint('Deepgram relay token unavailable: $error');
+        return null;
+      }
+    }
+    try {
+      final result = await _call('createDeepgramStreamingToken', {
+        'language': language,
+      });
+      final accessToken = result['accessToken'] as String?;
+      final url = result['url'] as String?;
+      if (accessToken == null ||
+          accessToken.trim().isEmpty ||
+          url == null ||
+          url.trim().isEmpty) {
+        return null;
+      }
+      return DeepgramStreamingToken(
+        accessToken: accessToken,
+        url: url,
+        expiresIn: (result['expiresIn'] as num?)?.toInt() ?? 30,
+        language: (result['language'] as String?) ?? language,
+        model: (result['model'] as String?) ?? 'nova-3',
+        sampleRate: (result['sampleRate'] as num?)?.toInt() ?? 16000,
+        channels: (result['channels'] as num?)?.toInt() ?? 1,
+        encoding: (result['encoding'] as String?) ?? 'linear16',
+      );
+    } catch (error) {
+      debugPrint('Deepgram streaming token unavailable: $error');
+      return null;
+    }
+  }
+
+  @override
+  Future<VoiceInlineSttResult?> transcribeClientVoiceMessageInline({
+    required String roomId,
+    required String messageId,
+    required Uint8List audioBytes,
+    required String contentType,
+    required int durationMs,
+    String language = 'ko-KR',
+  }) {
+    return _transcribePendingVoiceMessageInlineBytes(
+      roomId: roomId,
+      messageId: messageId,
+      audioBytes: audioBytes,
+      contentType: contentType,
+      durationMs: durationMs,
+      language: language,
+    );
+  }
+
+  @override
+  Future<VoiceInlineSttResult?> transcribeVoiceAudioDraft({
+    required String roomId,
+    required Uint8List audioBytes,
+    required String contentType,
+    required int durationMs,
+    String language = 'ko-KR',
+  }) async {
+    if (audioBytes.isEmpty) {
+      return null;
+    }
+    final startedAt = DateTime.now();
+    final result = await _call('transcribeVoiceAudioDraft', {
+      'roomId': roomId,
+      'audioBase64': base64Encode(audioBytes),
+      'contentType': contentType,
+      'durationMs': durationMs,
+      'language': language,
+    }, timeout: const Duration(seconds: 180));
+    final transcript = _voiceTranscriptValue(result['transcript'] as String?);
+    final transcriptLength = result['transcriptLength'] is num
+        ? (result['transcriptLength'] as num).toInt()
+        : transcript.length;
+    debugPrint(
+      'voice_speculative_stt_completed '
+      'roomId=$roomId '
+      'bytes=${audioBytes.length} '
+      'clientMs=${DateTime.now().difference(startedAt).inMilliseconds} '
+      'serverTotalMs=${result['totalMs'] ?? 'unknown'} '
+      'serverSttMs=${result['sttMs'] ?? 'unknown'} '
+      'transcriptLength=$transcriptLength '
+      'cacheHit=${result['cacheHit'] ?? 'unknown'}',
+    );
+    if (transcriptLength <= 0 && transcript.isEmpty) {
+      return null;
+    }
+    return VoiceInlineSttResult(
+      messageId: '${result['messageId'] ?? 'draft'}',
+      sttStatus: '${result['sttStatus'] ?? 'completed'}',
+      transcript: transcript,
+      transcriptLength: transcriptLength,
+      totalMs: result['totalMs'] is num
+          ? (result['totalMs'] as num).toInt()
+          : DateTime.now().difference(startedAt).inMilliseconds,
+      sttMs: result['sttMs'] is num ? (result['sttMs'] as num).toInt() : -1,
+      cacheHit: result['cacheHit'] == true,
+    );
+  }
+
+  String? _normalizeRealtimeProvider(String? provider) {
+    final normalized = (provider ?? '').trim().toLowerCase();
+    if (normalized == 'openai' || normalized == 'deepgram') {
+      return normalized;
+    }
+    return null;
+  }
+
+  String _effectiveRealtimeProvider(String? provider) {
+    const configuredProvider = String.fromEnvironment(
+      'VERBAL_REALTIME_STT_PROVIDER',
+      defaultValue: 'auto',
+    );
+    final configured = configuredProvider.trim().toLowerCase();
+    return provider == 'openai'
+        ? 'openai'
+        : provider == 'deepgram'
+        ? 'deepgram'
+        : configured == 'openai'
+        ? 'openai'
+        : 'deepgram';
+  }
+
+  Future<bool> _isRealtimeRelayProviderAvailable(String provider) async {
+    final normalizedProvider = provider.trim().toLowerCase();
+    if (normalizedProvider != 'openai') {
+      return true;
+    }
+    final healthUrl = _realtimeRelayHealthUrl();
+    if (healthUrl == null) {
+      return true;
+    }
+    final cacheKey = '$healthUrl::$normalizedProvider';
+    final now = DateTime.now();
+    final cached = _realtimeProviderHealthCache[cacheKey];
+    if (cached != null && cached.expiresAt.isAfter(now)) {
+      return cached.available;
+    }
+    final available = await realtimeRelayProviderAvailable(
+      relayRootUrl: healthUrl,
+      provider: normalizedProvider,
+      timeout: const Duration(milliseconds: 700),
+    );
+    if (available == null) {
+      return true;
+    }
+    _realtimeProviderHealthCache[cacheKey] = _RealtimeProviderHealthCacheEntry(
+      available: available,
+      expiresAt: now.add(
+        available ? const Duration(seconds: 20) : const Duration(minutes: 2),
       ),
     );
+    return available;
+  }
 
-    final data = <String, dynamic>{
-      'roomId': roomId,
-      'messageId': messageId,
-      'audioPath': storagePath,
+  String? _realtimeRelayHealthUrl() {
+    const raw = String.fromEnvironment(
+      'VERBAL_DEEPGRAM_RELAY_URL',
+      defaultValue: 'https://verbal-deepgram-relay-uhnknahebq-du.a.run.app',
+    );
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    final parsed = Uri.tryParse(trimmed);
+    if (parsed == null || parsed.host.isEmpty) {
+      return null;
+    }
+    final scheme = switch (parsed.scheme) {
+      'wss' => 'https',
+      'ws' => 'http',
+      'https' || 'http' => parsed.scheme,
+      _ => 'https',
+    };
+    return parsed.replace(scheme: scheme, path: '/', query: '').toString();
+  }
+
+  String? _deepgramRelayUrl(String language, {required String? provider}) {
+    const raw = String.fromEnvironment(
+      'VERBAL_DEEPGRAM_RELAY_URL',
+      defaultValue: 'https://verbal-deepgram-relay-uhnknahebq-du.a.run.app',
+    );
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    final parsed = Uri.tryParse(trimmed);
+    if (parsed == null || parsed.host.isEmpty) {
+      return null;
+    }
+    final scheme = switch (parsed.scheme) {
+      'https' => 'wss',
+      'http' => 'ws',
+      'wss' || 'ws' => parsed.scheme,
+      _ => 'wss',
+    };
+    final effectiveProvider = _effectiveRealtimeProvider(provider);
+    final path = parsed.path.trim().isEmpty
+        ? (effectiveProvider == 'openai' ? '/openai-stt' : '/stt')
+        : parsed.path;
+    final openAiMode =
+        effectiveProvider == 'openai' || path.toLowerCase().contains('openai');
+    final query = Map<String, String>.from(parsed.queryParameters);
+    const streamingModel = String.fromEnvironment(
+      'VERBAL_DEEPGRAM_STREAMING_MODEL',
+      defaultValue: 'nova-3',
+    );
+    const openAiStreamingModel = String.fromEnvironment(
+      'VERBAL_OPENAI_STREAMING_MODEL',
+      defaultValue: 'gpt-realtime-whisper',
+    );
+    const endpointingMs = String.fromEnvironment(
+      'VERBAL_DEEPGRAM_ENDPOINTING_MS',
+      defaultValue: '50',
+    );
+    const noDelay = String.fromEnvironment(
+      'VERBAL_DEEPGRAM_NO_DELAY',
+      defaultValue: 'true',
+    );
+    const smartFormat = String.fromEnvironment(
+      'VERBAL_DEEPGRAM_STREAMING_SMART_FORMAT',
+      defaultValue: 'false',
+    );
+    const punctuate = String.fromEnvironment(
+      'VERBAL_DEEPGRAM_STREAMING_PUNCTUATE',
+      defaultValue: 'false',
+    );
+    const numerals = String.fromEnvironment(
+      'VERBAL_DEEPGRAM_STREAMING_NUMERALS',
+      defaultValue: 'false',
+    );
+    query.putIfAbsent('language', () => language);
+    query.putIfAbsent('model', () {
+      return openAiMode ? openAiStreamingModel : streamingModel;
+    });
+    if (openAiMode) {
+      query.putIfAbsent('provider', () => 'openai');
+      query.putIfAbsent('delay', () => 'minimal');
+      query.putIfAbsent('commit_ms', () => '250');
+    } else {
+      query.putIfAbsent('endpointing', () => endpointingMs);
+      if (noDelay.trim().isNotEmpty) {
+        query.putIfAbsent('no_delay', () => noDelay);
+      }
+      query.putIfAbsent('smart_format', () => smartFormat);
+      query.putIfAbsent('punctuate', () => punctuate);
+      query.putIfAbsent('numerals', () => numerals);
+    }
+    return parsed
+        .replace(scheme: scheme, path: path, queryParameters: query)
+        .toString();
+  }
+
+  Future<void> _createAndFinalizePendingVoiceMessage({
+    required String ownerUid,
+    required String roomId,
+    required DocumentReference<Map<String, dynamic>> roomRef,
+    required DocumentReference<Map<String, dynamic>> messageRef,
+    required String messageId,
+    required String audioFilePath,
+    required String extension,
+    required int durationMs,
+    required SendMode sendMode,
+    required String language,
+    String? transcriptOverride,
+    String? replyToMessageId,
+    bool forceServerSttCorrection = false,
+    bool skipInlineStt = false,
+  }) async {
+    try {
+      await _createPendingVoiceMessage(
+        ownerUid: ownerUid,
+        roomId: roomId,
+        roomRef: roomRef,
+        messageRef: messageRef,
+        messageId: messageId,
+        durationMs: durationMs,
+        sendMode: sendMode,
+        language: language,
+        transcriptOverride: transcriptOverride,
+        replyToMessageId: replyToMessageId,
+      );
+
+      await _finalizePendingVoiceMessage(
+        ownerUid: ownerUid,
+        roomId: roomId,
+        messageId: messageId,
+        audioFilePath: audioFilePath,
+        extension: extension,
+        durationMs: durationMs,
+        language: language,
+        transcriptOverride: _voiceTranscriptValue(transcriptOverride),
+        forceServerSttCorrection: forceServerSttCorrection,
+        skipInlineStt: skipInlineStt,
+      );
+    } catch (error, stackTrace) {
+      debugPrint('Failed to create pending voice message: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  }
+
+  Future<void> _createPendingVoiceMessage({
+    required String ownerUid,
+    required String roomId,
+    required DocumentReference<Map<String, dynamic>> roomRef,
+    required DocumentReference<Map<String, dynamic>> messageRef,
+    required String messageId,
+    required int durationMs,
+    required SendMode sendMode,
+    required String language,
+    String? transcriptOverride,
+    String? replyToMessageId,
+  }) async {
+    final replyTo = await _replyToMap(roomRef, replyToMessageId);
+    final pendingText = _voiceTranscriptValue(transcriptOverride);
+    final pendingWriteStartedAt = DateTime.now();
+    await messageRef.set({
+      'senderId': ownerUid,
+      'kind': MessageKind.voice.name,
+      'text': pendingText,
+      'transcript': pendingText,
+      'audioPath': null,
       'durationMs': durationMs,
+      'sttStatus': pendingText.isNotEmpty
+          ? SttStatus.completed.name
+          : SttStatus.processing.name,
       'sendMode': sendMode.name,
       'language': language,
-    };
-    final manualTranscript = transcriptOverride?.trim();
-    if (manualTranscript != null && manualTranscript.isNotEmpty) {
-      data['transcriptOverride'] = manualTranscript;
+      'replyTo': replyTo,
+      'deliveryStatus': MessageDeliveryStatus.sending.name,
+      'clientCreated': true,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    debugPrint(
+      'voice_send_pending_created messageId=$messageId '
+      'roomId=$roomId '
+      'recordStopMs=$durationMs '
+      'pendingWriteMs=${DateTime.now().difference(pendingWriteStartedAt).inMilliseconds} '
+      'transcriptAtCreate=${pendingText.isNotEmpty}',
+    );
+  }
+
+  Future<void> _finalizePendingVoiceMessage({
+    required String ownerUid,
+    required String roomId,
+    required String messageId,
+    required String audioFilePath,
+    required String extension,
+    required int durationMs,
+    required String language,
+    String? transcriptOverride,
+    bool forceServerSttCorrection = false,
+    bool skipInlineStt = false,
+  }) async {
+    final storagePath = 'voice_drafts/$ownerUid/$messageId$extension';
+    final finalizeStartedAt = DateTime.now();
+    try {
+      final manualTranscript = transcriptOverride?.trim();
+      final hasManualTranscript =
+          manualTranscript != null && manualTranscript.isNotEmpty;
+      final shouldRunInlineStt =
+          !skipInlineStt && (!hasManualTranscript || forceServerSttCorrection);
+      const shouldDeferStorageStt = true;
+      Future<VoiceInlineSttResult?>? inlineSttFuture;
+      if (shouldRunInlineStt) {
+        inlineSttFuture = _transcribePendingVoiceMessageInline(
+          roomId: roomId,
+          messageId: messageId,
+          audioFilePath: audioFilePath,
+          extension: extension,
+          durationMs: durationMs,
+          language: language,
+        );
+        unawaited(inlineSttFuture);
+      }
+      final uploadStartedAt = DateTime.now();
+      await uploadAudioFile(
+        ref: _storage.ref(storagePath),
+        audioFilePath: audioFilePath,
+        metadata: SettableMetadata(
+          contentType: _audioContentTypeForExtension(extension),
+          customMetadata: {
+            'ownerId': ownerUid,
+            'durationMs': '$durationMs',
+            'language': language,
+          },
+        ),
+      );
+      final uploadMs = DateTime.now()
+          .difference(uploadStartedAt)
+          .inMilliseconds;
+      final data = <String, dynamic>{
+        'roomId': roomId,
+        'messageId': messageId,
+        'audioPath': storagePath,
+        'durationMs': durationMs,
+        'language': language,
+        'clientUploadMs': uploadMs,
+        // Finalize should only make the audio playable and deliverable.
+        // Inline STT and the server update trigger attach transcript text
+        // without blocking the send path.
+        'deferStt': shouldDeferStorageStt,
+      };
+      if (manualTranscript != null && manualTranscript.isNotEmpty) {
+        data['transcriptOverride'] = manualTranscript;
+      }
+      if (forceServerSttCorrection) {
+        data['forceServerSttCorrection'] = true;
+      }
+      final finalizeCallStartedAt = DateTime.now();
+      final result = await _call('finalizeClientVoiceMessage', data);
+      final finalizeCallMs = DateTime.now()
+          .difference(finalizeCallStartedAt)
+          .inMilliseconds;
+      debugPrint(
+        'voice_send_finalize_completed messageId=$messageId '
+        'uploadMs=$uploadMs '
+        'finalizeCallMs=$finalizeCallMs '
+        'totalFinalizeMs=${DateTime.now().difference(finalizeStartedAt).inMilliseconds} '
+        'sttStatus=${result['sttStatus'] ?? 'unknown'} '
+        'transcriptOverride=$hasManualTranscript '
+        'inlineStt=$shouldRunInlineStt '
+        'deferStt=$shouldDeferStorageStt '
+        'skipInlineStt=$skipInlineStt '
+        'forceServerSttCorrection=$forceServerSttCorrection',
+      );
+      final finalizedSttStatus = '${result['sttStatus'] ?? ''}';
+      if (!hasManualTranscript && finalizedSttStatus != 'completed') {
+        unawaited(
+          _ensurePendingVoiceTranscriptAfterFinalize(
+            roomId: roomId,
+            messageId: messageId,
+            inlineSttFuture: inlineSttFuture,
+          ),
+        );
+      }
+    } catch (error, stackTrace) {
+      debugPrint('Failed to finalize pending voice message: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      if (_shouldLeaveVoiceFinalizePending(error)) {
+        debugPrint(
+          'voice_send_finalize_deferred messageId=$messageId reason=$error',
+        );
+        return;
+      }
+      await _markPendingVoiceMessageFailed(
+        roomId: roomId,
+        messageId: messageId,
+        reason: error.toString(),
+      );
     }
-    if (replyToMessageId != null) {
-      data['replyToMessageId'] = replyToMessageId;
+  }
+
+  Future<VoiceInlineSttResult?> _transcribePendingVoiceMessageInline({
+    required String roomId,
+    required String messageId,
+    required String audioFilePath,
+    required String extension,
+    required int durationMs,
+    required String language,
+  }) async {
+    const maxInlineBytes = int.fromEnvironment(
+      'VERBAL_INLINE_STT_MAX_BYTES',
+      defaultValue: 2 * 1024 * 1024,
+    );
+    final inlineStartedAt = DateTime.now();
+    final Uint8List? bytes;
+    try {
+      bytes = await readLocalAudioBytesForInlineStt(
+        audioFilePath,
+        maxBytes: maxInlineBytes,
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+        'Inline voice STT audio read failed messageId=$messageId: $error',
+      );
+      debugPrintStack(stackTrace: stackTrace);
+      return null;
     }
-    await _call('sendInstantVoiceMessage', data);
+    if (bytes == null || bytes.isEmpty) {
+      return null;
+    }
+    return _transcribePendingVoiceMessageInlineBytes(
+      roomId: roomId,
+      messageId: messageId,
+      audioBytes: bytes,
+      contentType: _audioContentTypeForExtension(extension),
+      durationMs: durationMs,
+      language: language,
+      inlineStartedAt: inlineStartedAt,
+    );
+  }
+
+  Future<VoiceInlineSttResult?> _transcribePendingVoiceMessageInlineBytes({
+    required String roomId,
+    required String messageId,
+    required Uint8List audioBytes,
+    required String contentType,
+    required int durationMs,
+    required String language,
+    DateTime? inlineStartedAt,
+  }) async {
+    final startedAt = inlineStartedAt ?? DateTime.now();
+    if (audioBytes.isEmpty) {
+      return null;
+    }
+    for (var attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        final attemptStartedAt = DateTime.now();
+        final result = await _call(
+          'transcribeClientVoiceMessageInline',
+          {
+            'roomId': roomId,
+            'messageId': messageId,
+            'audioBase64': base64Encode(audioBytes),
+            'contentType': contentType,
+            'durationMs': durationMs,
+            'language': language,
+          },
+          timeout: const Duration(seconds: 180),
+        );
+        final transcriptLength = result['transcriptLength'] is num
+            ? (result['transcriptLength'] as num).toInt()
+            : 0;
+        debugPrint(
+          'voice_send_inline_stt_completed messageId=$messageId '
+          'attempt=$attempt '
+          'bytes=${audioBytes.length} '
+          'attemptMs=${DateTime.now().difference(attemptStartedAt).inMilliseconds} '
+          'totalMs=${DateTime.now().difference(startedAt).inMilliseconds} '
+          'serverTotalMs=${result['totalMs'] ?? 'unknown'} '
+          'serverSttMs=${result['sttMs'] ?? 'unknown'} '
+          'transcriptLength=$transcriptLength '
+          'cacheHit=${result['cacheHit'] ?? 'unknown'}',
+        );
+        final transcript = _voiceTranscriptValue(
+          result['transcript'] as String?,
+        );
+        final sttStatus = '${result['sttStatus'] ?? ''}';
+        if (transcriptLength > 0 || sttStatus == 'completed') {
+          return VoiceInlineSttResult(
+            messageId: '${result['messageId'] ?? messageId}',
+            sttStatus: sttStatus,
+            transcript: transcript,
+            transcriptLength: transcriptLength,
+            totalMs: result['totalMs'] is num
+                ? (result['totalMs'] as num).toInt()
+                : DateTime.now().difference(startedAt).inMilliseconds,
+            sttMs: result['sttMs'] is num
+                ? (result['sttMs'] as num).toInt()
+                : -1,
+            cacheHit: result['cacheHit'] == true,
+          );
+        }
+      } catch (error, stackTrace) {
+        debugPrint(
+          'Inline voice STT failed messageId=$messageId attempt=$attempt: $error',
+        );
+        if (attempt == 1) {
+          debugPrintStack(stackTrace: stackTrace);
+          return null;
+        }
+      }
+      await Future<void>.delayed(Duration(milliseconds: 900 + attempt * 600));
+    }
+    return null;
+  }
+
+  Future<void> _ensurePendingVoiceTranscriptAfterFinalize({
+    required String roomId,
+    required String messageId,
+    Future<VoiceInlineSttResult?>? inlineSttFuture,
+  }) async {
+    unawaited(
+      inlineSttFuture?.catchError((Object error) {
+        debugPrint(
+          'voice_send_inline_stt_observe_failed messageId=$messageId error=$error',
+        );
+        return null;
+      }),
+    );
+    try {
+      final startedAt = DateTime.now();
+      final result = await _call(
+        'recoverClientVoiceMessageTranscript',
+        {'roomId': roomId, 'messageId': messageId},
+        timeout: const Duration(seconds: 180),
+      );
+      debugPrint(
+        'voice_send_storage_stt_recovery_completed messageId=$messageId '
+        'totalMs=${DateTime.now().difference(startedAt).inMilliseconds} '
+        'sttStatus=${result['sttStatus'] ?? 'unknown'} '
+        'transcriptLength=${result['transcriptLength'] ?? 'unknown'}',
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+        'voice_send_storage_stt_recovery_failed messageId=$messageId error=$error',
+      );
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  }
+
+  bool _shouldLeaveVoiceFinalizePending(Object error) {
+    if (error is! FirebaseFunctionsException) {
+      return false;
+    }
+    final code = error.code.toLowerCase();
+    return code == 'deadline-exceeded' ||
+        code == 'unavailable' ||
+        code == 'aborted' ||
+        code == 'internal';
+  }
+
+  Future<void> _markPendingVoiceMessageFailed({
+    required String roomId,
+    required String messageId,
+    required String reason,
+  }) async {
+    try {
+      await _call('markClientVoiceMessageFailed', {
+        'roomId': roomId,
+        'messageId': messageId,
+        'reason': reason,
+      });
+    } catch (error) {
+      debugPrint('Failed to mark pending voice message failed: $error');
+    }
+  }
+
+  @override
+  Future<void> updateClientVoiceTranscript({
+    required String roomId,
+    required String messageId,
+    required String transcript,
+  }) async {
+    final text = transcript.trim();
+    if (text.isEmpty) {
+      return;
+    }
+    await _call('updateClientVoiceTranscript', {
+      'roomId': roomId,
+      'messageId': messageId,
+      'transcript': text,
+    });
+  }
+
+  @override
+  Future<void> recoverClientVoiceMessageTranscript({
+    required String roomId,
+    required String messageId,
+  }) async {
+    await _call('recoverClientVoiceMessageTranscript', {
+      'roomId': roomId,
+      'messageId': messageId,
+    }, timeout: const Duration(seconds: 180));
   }
 
   @override
@@ -972,8 +1878,15 @@ class FirebaseMessengerBackend implements MessengerBackend {
     if (audioPath.startsWith('/') || audioPath.startsWith('file:')) {
       return Uri.tryParse(audioPath);
     }
-    final url = await _storage.ref(audioPath).getDownloadURL();
-    return Uri.parse(url);
+    if (audioPath.startsWith('voice_drafts/')) {
+      throw StateError('voice_audio_pending_draft');
+    }
+    try {
+      final url = await _storage.ref(audioPath).getDownloadURL();
+      return Uri.parse(url);
+    } catch (error) {
+      throw StateError('voice_audio_access_denied: $error');
+    }
   }
 
   @override
@@ -1001,10 +1914,16 @@ class FirebaseMessengerBackend implements MessengerBackend {
 
   Future<Map<String, dynamic>> _call(
     String name,
-    Map<String, dynamic> data,
-  ) async {
+    Map<String, dynamic> data, {
+    Duration? timeout,
+  }) async {
     final result = await _functions
-        .httpsCallable(name)
+        .httpsCallable(
+          name,
+          options: timeout == null
+              ? null
+              : HttpsCallableOptions(timeout: timeout),
+        )
         .call<Map<String, dynamic>>(data);
     return Map<String, dynamic>.from(result.data);
   }
@@ -1087,6 +2006,29 @@ class FirebaseMessengerBackend implements MessengerBackend {
       return uri.pathSegments.last;
     }
     return trimmed.split('/').where((segment) => segment.isNotEmpty).last;
+  }
+
+  String _audioExtensionForPath(String path) {
+    final normalized = path.toLowerCase();
+    for (final extension in const ['.webm', '.wav', '.mp3', '.m4a']) {
+      if (normalized.endsWith(extension)) {
+        return extension;
+      }
+    }
+    return '.m4a';
+  }
+
+  String _audioContentTypeForExtension(String extension) {
+    switch (extension) {
+      case '.webm':
+        return 'audio/webm';
+      case '.wav':
+        return 'audio/wav';
+      case '.mp3':
+        return 'audio/mpeg';
+      default:
+        return 'audio/mp4';
+    }
   }
 
   String get _platformName => kIsWeb ? 'web' : defaultTargetPlatform.name;

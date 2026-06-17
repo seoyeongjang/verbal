@@ -21,7 +21,7 @@ import UIKit
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     FlutterMethodChannel(
-      name: "voice_messenger/location",
+      name: "verbal/location",
       binaryMessenger: engineBridge.binaryMessenger
     ).setMethodCallHandler { [weak self] call, result in
       guard call.method == "currentLocation" else {
@@ -31,7 +31,7 @@ import UIKit
       self?.requestCurrentLocation(result: result)
     }
     FlutterMethodChannel(
-      name: "voice_messenger/external_calendar",
+      name: "verbal/external_calendar",
       binaryMessenger: engineBridge.binaryMessenger
     ).setMethodCallHandler { [weak self] call, result in
       guard call.method == "addEvent" else {

@@ -52,6 +52,10 @@ abstract class MessengerBackend {
 
   Stream<List<RoomJoinRequest>> watchRoomJoinRequests(String roomId);
 
+  Future<List<AppUser>> listUserDirectory({String query = ''});
+
+  Future<AppUser> addFriendByHandle({required String handle});
+
   Future<ChatRoom> createRoom({
     required List<String> participantHandles,
     required RoomType type,
@@ -205,7 +209,7 @@ abstract class MessengerBackend {
     String? replyToMessageId,
   });
 
-  Future<void> sendInstantVoiceMessage({
+  Future<String> sendInstantVoiceMessage({
     required String roomId,
     required String audioFilePath,
     required int durationMs,
@@ -213,6 +217,53 @@ abstract class MessengerBackend {
     String language = 'ko-KR',
     String? transcriptOverride,
     String? replyToMessageId,
+    String? clientMessageId,
+    bool pendingAlreadyCreated = false,
+    bool forceServerSttCorrection = false,
+    bool skipInlineStt = false,
+  });
+
+  Future<void> createPendingVoiceMessage({
+    required String roomId,
+    required String messageId,
+    required int durationMs,
+    required SendMode sendMode,
+    String language = 'ko-KR',
+    String? transcriptOverride,
+    String? replyToMessageId,
+  });
+
+  Future<DeepgramStreamingToken?> createDeepgramStreamingToken({
+    String language = 'ko-KR',
+    String? provider,
+  });
+
+  Future<VoiceInlineSttResult?> transcribeClientVoiceMessageInline({
+    required String roomId,
+    required String messageId,
+    required Uint8List audioBytes,
+    required String contentType,
+    required int durationMs,
+    String language = 'ko-KR',
+  });
+
+  Future<VoiceInlineSttResult?> transcribeVoiceAudioDraft({
+    required String roomId,
+    required Uint8List audioBytes,
+    required String contentType,
+    required int durationMs,
+    String language = 'ko-KR',
+  });
+
+  Future<void> updateClientVoiceTranscript({
+    required String roomId,
+    required String messageId,
+    required String transcript,
+  });
+
+  Future<void> recoverClientVoiceMessageTranscript({
+    required String roomId,
+    required String messageId,
   });
 
   Future<void> editMessage({
@@ -293,6 +344,48 @@ class AttachmentUploadPayload {
   final Uint8List bytes;
 }
 
+class DeepgramStreamingToken {
+  const DeepgramStreamingToken({
+    required this.accessToken,
+    required this.url,
+    required this.expiresIn,
+    required this.language,
+    required this.model,
+    required this.sampleRate,
+    required this.channels,
+    required this.encoding,
+  });
+
+  final String accessToken;
+  final String url;
+  final int expiresIn;
+  final String language;
+  final String model;
+  final int sampleRate;
+  final int channels;
+  final String encoding;
+}
+
+class VoiceInlineSttResult {
+  const VoiceInlineSttResult({
+    required this.messageId,
+    required this.sttStatus,
+    required this.transcript,
+    required this.transcriptLength,
+    required this.totalMs,
+    required this.sttMs,
+    required this.cacheHit,
+  });
+
+  final String messageId;
+  final String sttStatus;
+  final String transcript;
+  final int transcriptLength;
+  final int totalMs;
+  final int sttMs;
+  final bool cacheHit;
+}
+
 class BackendScope extends InheritedWidget {
   const BackendScope({required this.backend, required super.child, super.key});
 
@@ -300,6 +393,14 @@ class BackendScope extends InheritedWidget {
 
   static MessengerBackend of(BuildContext context) {
     final scope = context.dependOnInheritedWidgetOfExactType<BackendScope>();
+    assert(scope != null, 'BackendScope is missing above this context.');
+    return scope!.backend;
+  }
+
+  static MessengerBackend read(BuildContext context) {
+    final element = context
+        .getElementForInheritedWidgetOfExactType<BackendScope>();
+    final scope = element?.widget as BackendScope?;
     assert(scope != null, 'BackendScope is missing above this context.');
     return scope!.backend;
   }

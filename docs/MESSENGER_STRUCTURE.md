@@ -3,7 +3,7 @@
 Date checked: 2026-05-27
 
 This document turns competitor messenger features into a practical structure
-for Voice Messenger.
+for Verbal.
 
 The goal is not to clone Instagram DM, KakaoTalk, or Telegram. The goal is to
 define a stable feature map, data model direction, and implementation sequence
@@ -31,7 +31,7 @@ Telegram:
 - 1:1 chats, groups, large groups, and channels
 - Replies, mentions, and pinned messages
 
-Voice Messenger direction:
+Verbal direction:
 
 - Keep 1:1 and group rooms first.
 - Add reply, reaction, edit, delete, and read-state features before broad
@@ -56,7 +56,7 @@ Telegram:
 - Archive
 - Pinned chats inside folders
 
-Voice Messenger direction:
+Verbal direction:
 
 - Add pinned, archived, muted, unread, and voice-focused inbox filters.
 
@@ -86,7 +86,7 @@ Telegram:
 - Search
 - Self-destruct behavior in Secret Chats
 
-Voice Messenger direction:
+Verbal direction:
 
 - Add edit, delete, reply, reaction, pin, and search first.
 - Add schedule and translation after launch.
@@ -112,7 +112,7 @@ Telegram:
 - Group voice chats
 - Voice and video messages
 
-Voice Messenger direction:
+Verbal direction:
 
 - Make voice message plus transcript the product center.
 - Later add call recording, transcript, and summary features.
@@ -132,7 +132,7 @@ Telegram:
 - Files of any type
 - Photos, videos, stickers, bots, and mini apps
 
-Voice Messenger direction:
+Verbal direction:
 
 - Add image and file attachments after voice reliability is stable.
 - Keep short-form and social sharing out of the MVP.
@@ -157,7 +157,7 @@ Telegram:
 - Invite links
 - Bots and mini apps
 
-Voice Messenger direction:
+Verbal direction:
 
 - Add invite links and QR first.
 - Add open rooms and channels only after moderation exists.
@@ -185,7 +185,7 @@ Telegram:
 - 2-step security
 - Bot privacy mode
 
-Voice Messenger direction:
+Verbal direction:
 
 - Add block, report, and invite approval before open communities.
 - Treat Secret Chat as a later separate mode.
@@ -201,7 +201,7 @@ Voice Messenger direction:
 3. Telegram wins on power-user and community structure. The useful parts for us
    are folders/archive, strong search, pinned messages, roles, large rooms,
    channels, bots, and Secret Chat patterns.
-4. Voice Messenger should not start as a full social platform. It should first
+4. Verbal should not start as a full social platform. It should first
    be a high-quality voice-to-text messenger, then grow into organized chat,
    then community.
 

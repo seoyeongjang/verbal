@@ -16,7 +16,7 @@ Korean translation: `docs/ko/BETA_QA_PLAN.md`
 - Phone auth, profile setup, handle validation.
 - Create direct room and group room.
 - Send, edit, delete, reply, react, pin, and search messages.
-- Record voice in review mode and instant mode.
+- Record voice and verify automatic send after STT succeeds.
 - STT failure recovery: retry STT and manual transcript send.
 - Send image, file, and location.
 - Schedule a message with no default preset.

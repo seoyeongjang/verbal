@@ -25,7 +25,7 @@ const {
 } = require("firebase/storage");
 
 const rootDir = path.resolve(__dirname, "..", "..");
-const projectId = process.env.GCLOUD_PROJECT || "demo-voice-messenger";
+const projectId = process.env.GCLOUD_PROJECT || "demo-verbal";
 
 main().catch((error) => {
   console.error(error);
@@ -88,6 +88,14 @@ async function seedFirestore(testEnv) {
       transcript: "",
       status: "active",
       createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    await setDoc(doc(db, "users/alice/friends/bob"), {
+      uid: "bob",
+      displayName: "Bob",
+      handle: "bob_1",
+      defaultSendMode: "confirm",
+      addedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
     await setDoc(doc(db, "rooms/roomA"), {
@@ -207,6 +215,15 @@ async function runFirestoreTests(testEnv) {
     ),
   );
   await assertFails(deleteDoc(doc(alice, "users/alice/calendarEvents/eventA")));
+  await assertSucceeds(getDoc(doc(alice, "users/alice/friends/bob")));
+  await assertFails(getDoc(doc(bob, "users/alice/friends/bob")));
+  await assertFails(
+    setDoc(doc(alice, "users/alice/friends/mallory"), {
+      uid: "mallory",
+      displayName: "Mallory",
+      handle: "mallory_1",
+    }),
+  );
 
   await assertSucceeds(
     setDoc(doc(alice, "handles/alice_new"), {
@@ -248,9 +265,85 @@ async function runFirestoreTests(testEnv) {
       ),
     ),
   );
+  await assertSucceeds(
+    setDoc(doc(alice, "rooms/roomA/messages/clientText"), {
+      senderId: "alice",
+      kind: "text",
+      text: "client text is allowed",
+      transcript: "",
+      audioPath: null,
+      durationMs: 0,
+      sttStatus: "none",
+      sendMode: "confirm",
+      replyTo: null,
+      deliveryStatus: "sent",
+      clientCreated: true,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }),
+  );
   await assertFails(
-    setDoc(doc(alice, "rooms/roomA/messages/clientWrite"), {
-      text: "client writes are blocked",
+    setDoc(doc(alice, "rooms/roomA/messages/spoofedText"), {
+      senderId: "bob",
+      kind: "text",
+      text: "spoofed text is blocked",
+      transcript: "",
+      audioPath: null,
+      durationMs: 0,
+      sttStatus: "none",
+      sendMode: "confirm",
+      replyTo: null,
+      deliveryStatus: "sent",
+      clientCreated: true,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }),
+  );
+  await assertSucceeds(
+    setDoc(doc(alice, "rooms/roomA/messages/clientPendingVoice"), {
+      senderId: "alice",
+      kind: "voice",
+      text: "빠른 음성 메시지",
+      transcript: "빠른 음성 메시지",
+      audioPath: null,
+      durationMs: 1000,
+      sttStatus: "completed",
+      sendMode: "instant",
+      language: "ko-KR",
+      replyTo: null,
+      deliveryStatus: "sending",
+      clientCreated: true,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }),
+  );
+  await assertFails(
+    setDoc(
+      doc(alice, "rooms/roomA/messages/clientPendingVoice"),
+      {
+        text: "client transcript update must use a callable function",
+        transcript: "client transcript update must use a callable function",
+        sttStatus: "completed",
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    ),
+  );
+  await assertFails(
+    setDoc(doc(alice, "rooms/roomA/messages/clientCompletedVoice"), {
+      senderId: "alice",
+      kind: "voice",
+      text: "",
+      transcript: "",
+      audioPath: "voice_messages/roomA/clientVoice.m4a",
+      durationMs: 1000,
+      sttStatus: "processing",
+      sendMode: "instant",
+      replyTo: null,
+      deliveryStatus: "sent",
+      clientCreated: true,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     }),
   );
   await assertSucceeds(

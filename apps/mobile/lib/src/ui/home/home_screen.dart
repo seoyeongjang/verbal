@@ -10,13 +10,21 @@ import '../../services/handle_policy.dart';
 import '../../services/messenger_backend.dart';
 import '../calendar/calendar_screen.dart';
 import '../chat/chat_screen.dart';
+import '../shared/profile_avatar.dart';
 
-const _kInk = Color(0xFF111111);
 const _kMuted = Color(0xFF8E8E93);
 const _kSoft = Color(0xFFF2F2F5);
 const _kSelectedGreen = Color(0xFFE2FAEE);
 const _kAccentGreen = Color(0xFF00A86B);
 const _kActionRed = Color(0xFFFF3040);
+const _kLogoBlack = Color(0xFF111111);
+const _kHomeInk = Color(0xFFF7F7F8);
+const _kHomeMuted = Color(0xFFB7BBC3);
+const _kHomeSurface = Color(0xFF1C1C1E);
+const _kHomeSoft = Color(0xFF27282B);
+const _kHomeBorder = Color(0xFF34363A);
+const _kHomeSelectedGreen = Color(0xFF103C2B);
+const _kHomeActionSurface = Color(0xFF2B2D30);
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({required this.user, super.key});
@@ -44,7 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final backend = BackendScope.of(context);
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: _kLogoBlack,
       body: Column(
         children: [
           const _FakeStatusBar(),
@@ -121,7 +129,7 @@ class _HomeScreenState extends State<HomeScreen> {
   List<ChatRoom> _filteredRooms(List<ChatRoom> rooms) {
     return rooms.where((room) {
       return switch (_tab) {
-        _InboxTab.messages => !room.archived,
+        _InboxTab.messages => !room.archived && room.type != RoomType.group,
         _InboxTab.channels => !room.archived && room.type == RoomType.group,
         _InboxTab.requests => room.archived,
       };
@@ -183,6 +191,11 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showSettings(BuildContext context) {
     final backend = BackendScope.of(context);
     final isGuestSession = !backend.isConfigured;
+    final userProfile = contactProfileForLabel(
+      widget.user.handle.trim().isEmpty
+          ? widget.user.displayName
+          : widget.user.handle,
+    );
     void closeAndRun(VoidCallback action) {
       Navigator.of(context).pop();
       action();
@@ -214,14 +227,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 18),
                   Row(
                     children: [
-                      _StoryAvatar(label: widget.user.displayName, size: 48),
+                      _StoryAvatar(
+                        label: userProfile.displayName,
+                        size: 48,
+                        avatarAsset: userProfile.avatarAsset,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              widget.user.displayName,
+                              userProfile.displayName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
@@ -358,6 +375,18 @@ class _HomeScreenState extends State<HomeScreen> {
                           closeAndRun(() => _showThemeSettings(this.context));
                         },
                       ),
+                      _MenuTile(
+                        icon: Icons.format_size_rounded,
+                        title: '폰트 크기',
+                        subtitle: AppPreferenceScope.of(
+                          context,
+                        ).fontSizeChoice.label,
+                        onTap: () {
+                          closeAndRun(
+                            () => _showFontSizeSettings(this.context),
+                          );
+                        },
+                      ),
                     ],
                   ),
                   const SizedBox(height: 14),
@@ -485,6 +514,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showProfileSettings(BuildContext context) {
+    final userProfile = contactProfileForLabel(
+      widget.user.handle.trim().isEmpty
+          ? widget.user.displayName
+          : widget.user.handle,
+    );
     final displayNameController = TextEditingController(
       text: widget.user.displayName,
     );
@@ -570,14 +604,18 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 18),
                     Row(
                       children: [
-                        _StoryAvatar(label: widget.user.displayName, size: 64),
+                        _StoryAvatar(
+                          label: userProfile.displayName,
+                          size: 64,
+                          avatarAsset: userProfile.avatarAsset,
+                        ),
                         const SizedBox(width: 14),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                widget.user.displayName,
+                                userProfile.displayName,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -680,8 +718,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showProfileInvite(BuildContext context) {
-    final profileLink =
-        'https://voice-messenger.local/profile/${widget.user.handle}';
+    final profileLink = 'https://verbal.local/profile/${widget.user.handle}';
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -781,11 +818,7 @@ class _HomeScreenState extends State<HomeScreen> {
           title: '친구 목록',
           subtitle: '현재 대화 가능한 친구를 확인합니다.',
         ),
-        _SettingTile(
-          icon: Icons.alternate_email_rounded,
-          title: '아이디로 친구 추가',
-          subtitle: '한글, 영어, 일본어, 중국어, 숫자, _ 아이디를 지원합니다.',
-        ),
+        const _AddFriendSettingTile(),
         StatefulBuilder(
           builder: (context, setSheetState) {
             return Column(
@@ -1079,7 +1112,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       title: '앱 정보',
       children: [
-        const _InfoRow(label: '서비스', value: 'Voice Messenger'),
+        const _InfoRow(label: '서비스', value: 'Verbal'),
         const _InfoRow(label: '버전', value: '1.0.0+1'),
         _InfoRow(
           label: '모드',
@@ -1122,9 +1155,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showOpenSourceLicenses(BuildContext context) {
     showLicensePage(
       context: context,
-      applicationName: 'Voice Messenger',
+      applicationName: 'Verbal',
       applicationVersion: '1.0.0+1',
-      applicationLegalese: '© 2026 Voice Messenger',
+      applicationLegalese: '© 2026 Verbal',
     );
   }
 
@@ -1422,6 +1455,35 @@ class _HomeScreenState extends State<HomeScreen> {
                     selected: selected == choice,
                     onTap: () {
                       preferences.setThemeChoice(choice);
+                      setSheetState(() => selected = choice);
+                    },
+                  ),
+              ],
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  void _showFontSizeSettings(BuildContext context) {
+    var selected = AppPreferenceScope.of(context).fontSizeChoice;
+    _showMenuDetailSheet(
+      context,
+      title: '폰트 크기',
+      children: [
+        StatefulBuilder(
+          builder: (context, setSheetState) {
+            final preferences = AppPreferenceScope.of(context);
+            return Column(
+              children: [
+                for (final choice in MessengerFontSizeChoice.values)
+                  _ChoiceTile(
+                    title: Text(choice.label),
+                    subtitle: Text('${(choice.scale * 100).round()}%'),
+                    selected: selected == choice,
+                    onTap: () {
+                      preferences.setFontSizeChoice(choice);
                       setSheetState(() => selected = choice);
                     },
                   ),
@@ -1750,6 +1812,179 @@ class _SettingTile extends StatelessWidget {
   }
 }
 
+class _AddFriendSettingTile extends StatefulWidget {
+  const _AddFriendSettingTile();
+
+  @override
+  State<_AddFriendSettingTile> createState() => _AddFriendSettingTileState();
+}
+
+class _AddFriendSettingTileState extends State<_AddFriendSettingTile> {
+  final _handleController = TextEditingController();
+  var _expanded = false;
+  var _saving = false;
+  String? _error;
+  String? _success;
+
+  @override
+  void dispose() {
+    _handleController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const _IconBadge(icon: Icons.alternate_email_rounded),
+          title: const Text(
+            '아이디로 친구 추가',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
+          subtitle: const Text(
+            '한글, 영어, 일본어, 중국어, 숫자, _ 아이디를 지원합니다.',
+            style: TextStyle(
+              color: _kMuted,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          trailing: Icon(
+            _expanded
+                ? Icons.keyboard_arrow_up_rounded
+                : Icons.keyboard_arrow_down_rounded,
+          ),
+          onTap: _saving
+              ? null
+              : () => setState(() {
+                  _expanded = !_expanded;
+                  _error = null;
+                  _success = null;
+                }),
+        ),
+        AnimatedCrossFade(
+          firstChild: const SizedBox.shrink(),
+          secondChild: Padding(
+            padding: const EdgeInsets.only(left: 50, right: 2, bottom: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  key: const ValueKey('add-friend-handle-field'),
+                  controller: _handleController,
+                  enabled: !_saving,
+                  autocorrect: false,
+                  textInputAction: TextInputAction.done,
+                  decoration: InputDecoration(
+                    labelText: '친구 아이디',
+                    hintText: 'friend_id',
+                    errorText: _error,
+                  ),
+                  onSubmitted: (_) => _submit(),
+                ),
+                if (_success != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    _success!,
+                    style: const TextStyle(
+                      color: _kAccentGreen,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                FilledButton.icon(
+                  key: const ValueKey('add-friend-submit-button'),
+                  onPressed: _saving ? null : _submit,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.person_add_alt_1_rounded),
+                  label: Text(_saving ? '추가 중' : '친구 추가'),
+                ),
+              ],
+            ),
+          ),
+          crossFadeState: _expanded
+              ? CrossFadeState.showSecond
+              : CrossFadeState.showFirst,
+          duration: const Duration(milliseconds: 180),
+          sizeCurve: Curves.easeOutCubic,
+        ),
+      ],
+    );
+  }
+
+  Future<void> _submit() async {
+    final handle = normalizeHandle(_handleController.text);
+    final handleError = validateHandle(handle);
+    if (handle.isEmpty || handleError != null) {
+      setState(() {
+        _error = handleError ?? '친구 아이디를 입력하세요.';
+        _success = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _error = null;
+      _success = null;
+    });
+    try {
+      final friend = await BackendScope.read(
+        context,
+      ).addFriendByHandle(handle: handle);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _saving = false;
+        _success = '${friend.displayName} 님을 친구로 추가했습니다.';
+        _handleController.clear();
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _saving = false;
+        _error = _friendlyFriendAddError(error);
+      });
+    }
+  }
+
+  String _friendlyFriendAddError(Object error) {
+    final raw = error.toString();
+    if (raw.contains('not-found') || raw.contains('Handle not found')) {
+      return '입력한 아이디를 찾을 수 없습니다.';
+    }
+    if (raw.contains('failed-precondition') || raw.contains('profile')) {
+      return '프로필 설정이 필요합니다.';
+    }
+    if (raw.contains('invalid-argument')) {
+      return '아이디 형식을 확인해 주세요.';
+    }
+    if (raw.contains('already-exists')) {
+      return '이미 추가된 친구입니다.';
+    }
+    if (raw.contains('permission-denied')) {
+      return '친구 추가 권한을 확인할 수 없습니다. 다시 로그인해 주세요.';
+    }
+    return raw
+        .replaceFirst(RegExp(r'^\[firebase_functions/[^\]]+\]\s*'), '')
+        .replaceFirst('Exception: ', '')
+        .trim();
+  }
+}
+
 class _InfoRow extends StatelessWidget {
   const _InfoRow({required this.label, required this.value});
 
@@ -1894,14 +2129,22 @@ class _FakeStatusBar extends StatelessWidget {
           children: [
             Text(
               '9:41',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
+              style: TextStyle(
+                color: _kHomeInk,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             Spacer(),
-            Icon(Icons.signal_cellular_4_bar_rounded, size: 14),
+            Icon(
+              Icons.signal_cellular_4_bar_rounded,
+              color: _kHomeInk,
+              size: 14,
+            ),
             SizedBox(width: 4),
-            Icon(Icons.wifi_rounded, size: 14),
+            Icon(Icons.wifi_rounded, color: _kHomeInk, size: 14),
             SizedBox(width: 4),
-            Icon(Icons.battery_full_rounded, size: 16),
+            Icon(Icons.battery_full_rounded, color: _kHomeInk, size: 16),
           ],
         ),
       ),
@@ -1924,7 +2167,10 @@ class _DirectHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = user.handle.trim().isEmpty ? user.displayName : user.handle;
+    final rawTitle = user.handle.trim().isEmpty
+        ? user.displayName
+        : user.handle;
+    final title = contactProfileForLabel(rawTitle).displayName;
     return SizedBox(
       height: 64,
       child: Row(
@@ -1937,7 +2183,7 @@ class _DirectHeader extends StatelessWidget {
               minimumSize: const Size(58, 58),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
-            icon: const Icon(Icons.menu_rounded, size: 29),
+            icon: const Icon(Icons.menu_rounded, color: _kHomeInk, size: 29),
           ),
           Expanded(
             child: Text(
@@ -1945,7 +2191,7 @@ class _DirectHeader extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                color: _kInk,
+                color: _kHomeInk,
                 fontSize: 20,
                 fontWeight: FontWeight.w900,
               ),
@@ -1959,7 +2205,11 @@ class _DirectHeader extends StatelessWidget {
               minimumSize: const Size(58, 58),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
-            icon: const Icon(Icons.calendar_month_rounded, size: 24),
+            icon: const Icon(
+              Icons.calendar_month_rounded,
+              color: _kHomeInk,
+              size: 24,
+            ),
           ),
           IconButton(
             tooltip: '새 메시지',
@@ -1969,7 +2219,7 @@ class _DirectHeader extends StatelessWidget {
               minimumSize: const Size(58, 58),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
-            icon: const Icon(Icons.edit_square, size: 22),
+            icon: const Icon(Icons.edit_square, color: _kHomeInk, size: 22),
           ),
         ],
       ),
@@ -1984,16 +2234,38 @@ class _NotesRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final userProfile = contactProfileForLabel(
+      user.handle.trim().isEmpty ? user.displayName : user.handle,
+    );
     final items = [
-      _NoteData(user.displayName, 'Share a thought...', 'Your note', true),
-      const _NoteData(
-        'Jihoon Song',
-        'Sea ranch this weekend?',
-        'Jihoon Song',
-        false,
+      _NoteData(
+        userProfile.displayName,
+        'Share a thought...',
+        'Your note',
+        true,
+        userProfile.avatarAsset,
       ),
-      const _NoteData('Ricky Padilla', '🏖', 'Ricky Padilla', false),
-      const _NoteData('Alex Walker', 'Boo!', 'Alex Walker', true),
+      const _NoteData(
+        '이지훈',
+        '주말에 바다 갈래?',
+        '이지훈',
+        false,
+        'assets/avatars/contact_jihoon.png',
+      ),
+      const _NoteData(
+        '정유나',
+        '☕ 새 카페 찾음',
+        '정유나',
+        false,
+        'assets/avatars/contact_yuna.png',
+      ),
+      const _NoteData(
+        '최아린',
+        'Boo!',
+        '최아린',
+        true,
+        'assets/avatars/contact_arin.png',
+      ),
     ];
     return SizedBox(
       height: 126,
@@ -2009,12 +2281,19 @@ class _NotesRail extends StatelessWidget {
 }
 
 class _NoteData {
-  const _NoteData(this.avatarLabel, this.note, this.caption, this.online);
+  const _NoteData(
+    this.avatarLabel,
+    this.note,
+    this.caption,
+    this.online, [
+    this.avatarAsset,
+  ]);
 
   final String avatarLabel;
   final String note;
   final String caption;
   final bool online;
+  final String? avatarAsset;
 }
 
 class _NoteItem extends StatelessWidget {
@@ -2036,11 +2315,12 @@ class _NoteItem extends StatelessWidget {
               constraints: const BoxConstraints(maxWidth: 64),
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: _kHomeSurface,
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _kHomeBorder),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.12),
+                    color: Colors.black.withValues(alpha: 0.32),
                     blurRadius: 8,
                     offset: const Offset(0, 3),
                   ),
@@ -2052,7 +2332,7 @@ class _NoteItem extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  color: _kInk,
+                  color: _kHomeInk,
                   fontSize: 9,
                   height: 1.05,
                   fontWeight: FontWeight.w700,
@@ -2065,7 +2345,11 @@ class _NoteItem extends StatelessWidget {
             child: Stack(
               clipBehavior: Clip.none,
               children: [
-                _StoryAvatar(label: data.avatarLabel, size: 54),
+                _StoryAvatar(
+                  label: data.avatarLabel,
+                  size: 54,
+                  avatarAsset: data.avatarAsset,
+                ),
                 if (data.online)
                   Positioned(
                     right: 1,
@@ -2076,7 +2360,7 @@ class _NoteItem extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: const Color(0xFF34C759),
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
+                        border: Border.all(color: _kLogoBlack, width: 2),
                       ),
                     ),
                   ),
@@ -2093,7 +2377,7 @@ class _NoteItem extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  color: Color(0xFF6F6F73),
+                  color: _kHomeMuted,
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
                 ),
@@ -2149,7 +2433,7 @@ class _InboxTabButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? _kSelectedGreen : _kSoft,
+      color: selected ? _kHomeSelectedGreen : _kHomeSoft,
       borderRadius: BorderRadius.circular(10),
       child: InkWell(
         onTap: onTap,
@@ -2177,7 +2461,7 @@ class _InboxTabButton extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: selected ? _kAccentGreen : _kInk,
+                      color: selected ? _kAccentGreen : _kHomeInk,
                       fontSize: 12,
                       fontWeight: FontWeight.w900,
                     ),
@@ -2244,8 +2528,9 @@ class _SwipeRoomTileState extends State<_SwipeRoomTile> {
                 curve: Curves.easeOutCubic,
                 transform: Matrix4.translationValues(_offset, 0, 0),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: _kHomeSurface,
                   borderRadius: BorderRadius.circular(_open ? 12 : 0),
+                  border: Border.all(color: _kHomeBorder),
                   boxShadow: _open
                       ? [
                           BoxShadow(
@@ -2335,14 +2620,14 @@ class _SwipeActions extends StatelessWidget {
       children: [
         _ActionButton(
           label: pinned ? '해제' : '고정',
-          background: Colors.white,
-          foreground: _kInk,
+          background: _kHomeActionSurface,
+          foreground: _kHomeInk,
           onTap: busy ? null : onPin,
         ),
         _ActionButton(
           label: muted ? '알림 켬' : '알림 끔',
-          background: const Color(0xFFEDEEF1),
-          foreground: _kInk,
+          background: _kHomeSoft,
+          foreground: _kHomeInk,
           onTap: busy ? null : onMute,
         ),
         _ActionButton(
@@ -2403,6 +2688,7 @@ class _RoomRowContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final last = room.lastMessage;
+    final profile = contactProfileForLabel(room.title);
     final preview = last?.preview.trim().isNotEmpty == true
         ? last!.preview.trim()
         : '새 대화를 시작하세요';
@@ -2414,9 +2700,16 @@ class _RoomRowContent extends StatelessWidget {
       child: Row(
         children: [
           _StoryAvatar(
-            label: room.title,
+            label: profile.displayName,
             size: 52,
-            icon: room.type == RoomType.group ? Icons.groups_rounded : null,
+            avatarAsset: room.type == RoomType.direct
+                ? profile.avatarAsset
+                : null,
+            icon: switch (room.type) {
+              RoomType.group => Icons.groups_rounded,
+              RoomType.open => Icons.tag_rounded,
+              RoomType.direct => null,
+            },
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -2428,11 +2721,11 @@ class _RoomRowContent extends StatelessWidget {
                   children: [
                     Flexible(
                       child: Text(
-                        room.title,
+                        profile.displayName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          color: _kInk,
+                          color: _kHomeInk,
                           fontSize: 14,
                           fontWeight: FontWeight.w900,
                         ),
@@ -2440,14 +2733,18 @@ class _RoomRowContent extends StatelessWidget {
                     ),
                     if (room.pinned) ...[
                       const SizedBox(width: 4),
-                      const Icon(Icons.push_pin_rounded, size: 12),
+                      const Icon(
+                        Icons.push_pin_rounded,
+                        size: 12,
+                        color: _kHomeMuted,
+                      ),
                     ],
                     if (room.muted) ...[
                       const SizedBox(width: 4),
                       const Icon(
                         Icons.notifications_off_outlined,
                         size: 12,
-                        color: _kMuted,
+                        color: _kHomeMuted,
                       ),
                     ],
                   ],
@@ -2458,7 +2755,7 @@ class _RoomRowContent extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: Color(0xFF6F6F73),
+                    color: _kHomeMuted,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
@@ -2482,6 +2779,16 @@ class _RoomRowContent extends StatelessWidget {
   }
 }
 
+enum _RoomCreateMode {
+  normal,
+  open;
+
+  String get title => switch (this) {
+    _RoomCreateMode.normal => '일반채팅',
+    _RoomCreateMode.open => '오픈채팅',
+  };
+}
+
 class NewRoomSheet extends StatefulWidget {
   const NewRoomSheet({required this.user, super.key});
 
@@ -2492,175 +2799,585 @@ class NewRoomSheet extends StatefulWidget {
 }
 
 class _NewRoomSheetState extends State<NewRoomSheet> {
-  final _handlesController = TextEditingController();
+  final _searchController = TextEditingController();
+  final _manualHandleController = TextEditingController();
   final _titleController = TextEditingController();
   final _inviteController = TextEditingController();
-  RoomType _type = RoomType.direct;
+  final _openHandlesController = TextEditingController();
+  Future<List<AppUser>>? _contactsFuture;
+  _RoomCreateMode? _mode;
+  final _selectedHandles = <String>{};
+  final _selectedUsers = <String, AppUser>{};
   String? _error;
   var _saving = false;
   var _joining = false;
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _contactsFuture ??= BackendScope.of(context).listUserDirectory();
+  }
+
+  @override
   void dispose() {
-    _handlesController.dispose();
+    _searchController.dispose();
+    _manualHandleController.dispose();
     _titleController.dispose();
     _inviteController.dispose();
+    _openHandlesController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          top: 12,
-          bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+    final baseTheme = Theme.of(context);
+    final sheetTheme = baseTheme.copyWith(
+      brightness: Brightness.light,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: _kAccentGreen,
+        brightness: Brightness.light,
+      ),
+      textTheme: baseTheme.textTheme.apply(
+        bodyColor: _kLogoBlack,
+        displayColor: _kLogoBlack,
+      ),
+      listTileTheme: const ListTileThemeData(
+        textColor: _kLogoBlack,
+        iconColor: _kAccentGreen,
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: Colors.white,
+        labelStyle: const TextStyle(color: _kLogoBlack),
+        helperStyle: const TextStyle(color: _kMuted),
+        hintStyle: const TextStyle(color: _kMuted),
+        prefixIconColor: _kAccentGreen,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide.none,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: _kSoft,
-                  borderRadius: BorderRadius.circular(4),
-                ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: _kAccentGreen,
+          foregroundColor: Colors.white,
+          textStyle: const TextStyle(fontWeight: FontWeight.w900),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: _kLogoBlack,
+          side: const BorderSide(color: _kAccentGreen),
+          textStyle: const TextStyle(fontWeight: FontWeight.w900),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(foregroundColor: _kLogoBlack),
+      ),
+    );
+    return Theme(
+      data: sheetTheme,
+      child: DefaultTextStyle.merge(
+        style: const TextStyle(color: _kLogoBlack),
+        child: IconTheme(
+          data: const IconThemeData(color: _kLogoBlack),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.only(
+                left: 20,
+                right: 20,
+                top: 12,
+                bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: _kSoft,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  _NewRoomHeader(
+                    title: _mode?.title ?? '채팅 시작',
+                    showBack: _mode != null,
+                    onBack: () => setState(() {
+                      _mode = null;
+                      _error = null;
+                    }),
+                  ),
+                  const SizedBox(height: 16),
+                  if (_mode == null) ...[
+                    _CreateModeCard(
+                      icon: Icons.chat_bubble_outline_rounded,
+                      title: '일반채팅',
+                      subtitle: '친구 목록에서 선택합니다. 1명은 1:1, 2명 이상은 그룹으로 열립니다.',
+                      onTap: () => _selectMode(_RoomCreateMode.normal),
+                    ),
+                    const SizedBox(height: 10),
+                    _CreateModeCard(
+                      icon: Icons.tag_rounded,
+                      title: '오픈채팅',
+                      subtitle: '친구가 아니어도 아이디 검색으로 참여자를 초대합니다.',
+                      onTap: () => _selectMode(_RoomCreateMode.open),
+                    ),
+                    const SizedBox(height: 20),
+                    _InviteJoinSection(
+                      controller: _inviteController,
+                      joining: _joining,
+                      onJoin: _joinInvite,
+                    ),
+                  ] else if (_mode == _RoomCreateMode.open) ...[
+                    _buildOpenChatForm(),
+                  ] else ...[
+                    _buildFriendPicker(_mode!),
+                  ],
+                  if (_error != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      _error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
-            const SizedBox(height: 18),
-            const Text(
-              '새 메시지',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _inviteController,
-              decoration: const InputDecoration(
-                labelText: '초대 링크 또는 코드',
-                hintText: 'https://.../invite/abc123',
-                prefixIcon: Icon(Icons.qr_code_2_rounded),
-              ),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: _joining ? null : _joinInvite,
-              icon: _joining
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.login_rounded),
-              label: const Text('초대 참여'),
-            ),
-            const Divider(height: 30),
-            SegmentedButton<RoomType>(
-              segments: const [
-                ButtonSegment(
-                  value: RoomType.direct,
-                  icon: Icon(Icons.person_outline_rounded),
-                  label: Text('1:1'),
-                ),
-                ButtonSegment(
-                  value: RoomType.group,
-                  icon: Icon(Icons.groups_outlined),
-                  label: Text('그룹'),
-                ),
-              ],
-              selected: {_type},
-              onSelectionChanged: (selection) =>
-                  setState(() => _type = selection.first),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _handlesController,
-              decoration: const InputDecoration(
-                labelText: '받는 사람',
-                hintText: '민지 or 민지, 유키',
-                prefixIcon: Icon(Icons.alternate_email_rounded),
-                helperText: '한글, 영어, 일본어, 중국어, 숫자, _ 3~30자',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _titleController,
-              decoration: const InputDecoration(
-                labelText: '대화 이름',
-                hintText: '선택 사항',
-                prefixIcon: Icon(Icons.chat_bubble_outline_rounded),
-              ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _saving ? null : _createRoom,
-              icon: _saving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.check_rounded),
-              label: const Text('만들기'),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ],
-          ],
+          ),
         ),
       ),
     );
   }
 
-  Future<void> _createRoom() async {
-    final handles = _handlesController.text
+  Widget _buildFriendPicker(_RoomCreateMode mode) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          key: const ValueKey('new-room-friend-search-field'),
+          controller: _searchController,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(
+            labelText: '친구 검색',
+            hintText: '이름 또는 아이디',
+            prefixIcon: Icon(Icons.search_rounded),
+          ),
+        ),
+        const SizedBox(height: 12),
+        FutureBuilder<List<AppUser>>(
+          future: _contactsFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const SizedBox(
+                height: 180,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            final contacts = _filteredContacts(snapshot.data ?? const []);
+            return Container(
+              constraints: const BoxConstraints(maxHeight: 310),
+              decoration: BoxDecoration(
+                color: _kSoft,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: contacts.isEmpty
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text(
+                          '표시할 친구가 없습니다. 아래에서 아이디를 직접 추가할 수 있습니다.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: _kMuted,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: contacts.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final contact = contacts[index];
+                        final selected = _selectedHandles.contains(
+                          contact.handle,
+                        );
+                        return _FriendSelectTile(
+                          contact: contact,
+                          selected: selected,
+                          onTap: () => _toggleContact(contact),
+                        );
+                      },
+                    ),
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        _ManualHandleAdder(
+          controller: _manualHandleController,
+          onAdd: _addManualHandle,
+        ),
+        if (_selectedHandles.length > 1) ...[
+          const SizedBox(height: 12),
+          TextField(
+            key: const ValueKey('new-room-title-field'),
+            controller: _titleController,
+            decoration: const InputDecoration(
+              labelText: '대화방 이름',
+              hintText: '선택 사항',
+              prefixIcon: Icon(Icons.chat_bubble_outline_rounded),
+            ),
+          ),
+        ],
+        const SizedBox(height: 16),
+        FilledButton.icon(
+          key: const ValueKey('new-room-create-button'),
+          onPressed: _saving ? null : () => _createSelectedRoom(mode),
+          icon: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.check_rounded),
+          label: Text(_selectedHandles.length > 1 ? '그룹채팅 만들기' : '채팅 시작'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildOpenChatForm() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _OpenChatNotice(),
+        const SizedBox(height: 12),
+        TextField(
+          key: const ValueKey('open-room-title-field'),
+          controller: _titleController,
+          decoration: const InputDecoration(
+            labelText: '오픈채팅방 이름',
+            hintText: '예: 주말 러닝 모임',
+            prefixIcon: Icon(Icons.tag_rounded),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          key: const ValueKey('open-room-friend-search-field'),
+          controller: _searchController,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(
+            labelText: '등록 친구 검색',
+            hintText: '이름 또는 아이디',
+            prefixIcon: Icon(Icons.search_rounded),
+          ),
+        ),
+        const SizedBox(height: 12),
+        FutureBuilder<List<AppUser>>(
+          future: _contactsFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const SizedBox(
+                height: 120,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            final contacts = _filteredContacts(snapshot.data ?? const []);
+            return Container(
+              constraints: const BoxConstraints(maxHeight: 230),
+              decoration: BoxDecoration(
+                color: _kSoft,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: contacts.isEmpty
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(20),
+                        child: Text(
+                          '검색된 등록 친구가 없습니다. 아래에서 아이디를 직접 입력하거나 링크만 공유할 수 있습니다.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: _kMuted,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: contacts.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final contact = contacts[index];
+                        final selected = _selectedHandles.contains(
+                          contact.handle,
+                        );
+                        return _FriendSelectTile(
+                          contact: contact,
+                          selected: selected,
+                          onTap: () => _toggleContact(contact),
+                        );
+                      },
+                    ),
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          key: const ValueKey('open-room-handles-field'),
+          controller: _openHandlesController,
+          decoration: const InputDecoration(
+            labelText: '추가로 초대할 아이디',
+            hintText: 'user_a, user_b',
+            prefixIcon: Icon(Icons.alternate_email_rounded),
+            helperText: '친구가 아니어도 아이디로 초대할 수 있고, 비워두면 링크만 생성합니다.',
+          ),
+        ),
+        const SizedBox(height: 16),
+        FilledButton.icon(
+          key: const ValueKey('open-room-create-button'),
+          onPressed: _saving ? null : _createOpenRoom,
+          icon: _saving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.check_rounded),
+          label: const Text('오픈채팅 만들기'),
+        ),
+      ],
+    );
+  }
+
+  List<AppUser> _filteredContacts(List<AppUser> contacts) {
+    final query = _searchController.text.trim().toLowerCase();
+    if (query.isEmpty) {
+      return contacts;
+    }
+    return contacts
+        .where(
+          (contact) =>
+              contact.displayName.toLowerCase().contains(query) ||
+              contact.handle.toLowerCase().contains(query),
+        )
+        .toList();
+  }
+
+  void _selectMode(_RoomCreateMode mode) {
+    setState(() {
+      _mode = mode;
+      _error = null;
+      _selectedHandles.clear();
+      _selectedUsers.clear();
+      _searchController.clear();
+      _manualHandleController.clear();
+      _titleController.clear();
+      _openHandlesController.clear();
+    });
+  }
+
+  void _toggleContact(AppUser contact) {
+    final handle = normalizeHandle(contact.handle);
+    if (handle.isEmpty) {
+      return;
+    }
+    setState(() {
+      if (_selectedHandles.contains(handle)) {
+        _selectedHandles.remove(handle);
+        _selectedUsers.remove(handle);
+      } else {
+        _selectedHandles.add(handle);
+        _selectedUsers[handle] = contact;
+      }
+      _error = null;
+    });
+  }
+
+  void _addManualHandle() {
+    final handle = normalizeHandle(_manualHandleController.text);
+    final error = validateHandle(handle);
+    if (handle.isEmpty || error != null) {
+      setState(() => _error = error ?? '추가할 아이디를 입력하세요.');
+      return;
+    }
+    setState(() {
+      _selectedHandles.add(handle);
+      _manualHandleController.clear();
+      _error = null;
+    });
+  }
+
+  Future<void> _createSelectedRoom(_RoomCreateMode mode) async {
+    final handles = _selectedHandles.toList(growable: false);
+    if (handles.isEmpty) {
+      setState(() => _error = '초대할 친구를 선택하거나 아이디를 추가하세요.');
+      return;
+    }
+    final type = handles.length == 1 ? RoomType.direct : RoomType.group;
+    await _createRoom(
+      handles: handles,
+      type: type,
+      title: _titleForSelectedRoom(type, handles),
+    );
+  }
+
+  String? _titleForSelectedRoom(RoomType type, List<String> handles) {
+    final typedTitle = _titleController.text.trim();
+    if (typedTitle.isNotEmpty) {
+      return typedTitle;
+    }
+    final labels = handles
+        .map((handle) => _selectedUsers[handle]?.displayName)
+        .whereType<String>()
+        .where((name) => name.trim().isNotEmpty)
+        .toList();
+    if (type == RoomType.direct && labels.length == 1) {
+      return labels.single;
+    }
+    if (type == RoomType.group && labels.length > 1) {
+      return labels.join(', ');
+    }
+    return null;
+  }
+
+  Future<void> _createOpenRoom() async {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) {
+      setState(() => _error = '오픈채팅방 이름을 입력하세요.');
+      return;
+    }
+    final handles = {
+      ..._selectedHandles,
+      ..._handlesFromText(_openHandlesController.text),
+    }.toList();
+    await _createRoom(handles: handles, type: RoomType.open, title: title);
+  }
+
+  List<String> _handlesFromText(String text) {
+    final handles = text
         .split(',')
         .map(normalizeHandle)
         .where((value) => value.isNotEmpty)
         .toSet()
         .toList();
-    if (handles.isEmpty) {
-      setState(() => _error = '초대할 아이디를 입력하세요.');
-      return;
-    }
     for (final handle in handles) {
       final error = validateHandle(handle);
       if (error != null) {
         setState(() => _error = error);
-        return;
+        return const [];
       }
     }
+    return handles;
+  }
 
+  Future<void> _createRoom({
+    required List<String> handles,
+    required RoomType type,
+    String? title,
+  }) async {
+    final navigator = Navigator.of(context);
+    final ownerContext = navigator.context;
+    final backend = BackendScope.of(context);
+    final user = widget.user;
     setState(() {
       _saving = true;
       _error = null;
     });
     try {
-      await BackendScope.of(context).createRoom(
+      final room = await backend.createRoom(
         participantHandles: handles,
-        type: _type,
-        title: _titleController.text,
+        type: type,
+        title: title,
       );
-      if (mounted) {
-        Navigator.of(context).pop();
+      RoomInvite? openInvite;
+      if (type == RoomType.open) {
+        openInvite = await backend.createRoomInvite(roomId: room.id);
+      }
+      if (!mounted) {
+        return;
+      }
+      navigator.pop();
+      if (openInvite != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!ownerContext.mounted) {
+            return;
+          }
+          _showOpenInviteSheet(ownerContext, room, openInvite!, user);
+        });
+      } else {
+        navigator.push(
+          MaterialPageRoute(
+            builder: (_) => ChatScreen(room: room, user: user),
+          ),
+        );
       }
     } catch (error) {
       if (mounted) {
-        setState(() => _error = error.toString());
+        setState(() => _error = _friendlyRoomError(error));
       }
     } finally {
       if (mounted) {
         setState(() => _saving = false);
       }
     }
+  }
+
+  void _showOpenInviteSheet(
+    BuildContext ownerContext,
+    ChatRoom room,
+    RoomInvite invite,
+    AppUser user,
+  ) {
+    showModalBottomSheet<void>(
+      context: ownerContext,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      builder: (sheetContext) {
+        return _OpenInviteCreatedSheet(
+          room: room,
+          invite: invite,
+          onCopy: () async {
+            await Clipboard.setData(ClipboardData(text: invite.url));
+            if (sheetContext.mounted) {
+              ScaffoldMessenger.of(
+                sheetContext,
+              ).showSnackBar(const SnackBar(content: Text('오픈채팅 링크를 복사했습니다.')));
+            }
+          },
+          onEnter: () {
+            Navigator.of(sheetContext).pop();
+            Navigator.of(ownerContext).push(
+              MaterialPageRoute(
+                builder: (_) => ChatScreen(room: room, user: user),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _friendlyRoomError(Object error) {
+    final raw = error.toString();
+    if (raw.contains('not-found') || raw.contains('Handle not found')) {
+      return '입력한 아이디를 찾을 수 없습니다.';
+    }
+    if (raw.contains('Direct rooms must have exactly two participants')) {
+      return '1:1 채팅은 친구 1명만 선택할 수 있습니다.';
+    }
+    return raw
+        .replaceFirst(RegExp(r'^\[firebase_functions/[^\]]+\]\s*'), '')
+        .replaceFirst('Exception: ', '')
+        .trim();
   }
 
   Future<void> _joinInvite() async {
@@ -2706,6 +3423,400 @@ class _NewRoomSheetState extends State<NewRoomSheet> {
   }
 }
 
+class _NewRoomHeader extends StatelessWidget {
+  const _NewRoomHeader({
+    required this.title,
+    required this.showBack,
+    required this.onBack,
+  });
+
+  final String title;
+  final bool showBack;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        if (showBack)
+          IconButton(
+            tooltip: '뒤로',
+            onPressed: onBack,
+            icon: const Icon(Icons.arrow_back_ios_new_rounded),
+          )
+        else
+          const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CreateModeCard extends StatelessWidget {
+  const _CreateModeCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: _kSoft,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: const BoxDecoration(
+                  color: _kSelectedGreen,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: _kAccentGreen),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: _kMuted,
+                        fontSize: 12,
+                        height: 1.25,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: _kMuted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _InviteJoinSection extends StatelessWidget {
+  const _InviteJoinSection({
+    required this.controller,
+    required this.joining,
+    required this.onJoin,
+  });
+
+  final TextEditingController controller;
+  final bool joining;
+  final VoidCallback onJoin;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: _kSoft),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              '초대 링크로 참여',
+              style: TextStyle(fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                labelText: '초대 링크 또는 코드',
+                hintText: 'https://.../invite/abc123',
+                prefixIcon: Icon(Icons.qr_code_2_rounded),
+              ),
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: joining ? null : onJoin,
+              icon: joining
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.login_rounded),
+              label: const Text('초대 참여'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OpenInviteCreatedSheet extends StatelessWidget {
+  const _OpenInviteCreatedSheet({
+    required this.room,
+    required this.invite,
+    required this.onCopy,
+    required this.onEnter,
+  });
+
+  final ChatRoom room;
+  final RoomInvite invite;
+  final Future<void> Function() onCopy;
+  final VoidCallback onEnter;
+
+  @override
+  Widget build(BuildContext context) {
+    final baseTheme = Theme.of(context);
+    final sheetTheme = baseTheme.copyWith(
+      brightness: Brightness.light,
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: _kAccentGreen,
+        brightness: Brightness.light,
+      ),
+      textTheme: baseTheme.textTheme.apply(
+        bodyColor: _kLogoBlack,
+        displayColor: _kLogoBlack,
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: _kAccentGreen,
+          foregroundColor: Colors.white,
+          textStyle: const TextStyle(fontWeight: FontWeight.w900),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: _kLogoBlack,
+          side: const BorderSide(color: _kAccentGreen),
+          textStyle: const TextStyle(fontWeight: FontWeight.w900),
+        ),
+      ),
+    );
+    return Theme(
+      data: sheetTheme,
+      child: DefaultTextStyle.merge(
+        style: const TextStyle(color: _kLogoBlack),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(22, 12, 22, 22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: _kSoft,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  '오픈채팅 링크가 생성되었습니다',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  room.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: _kMuted,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Center(
+                  child: Container(
+                    width: 172,
+                    height: 172,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(color: _kSoft),
+                    ),
+                    child: QrImageView(
+                      data: invite.url,
+                      version: QrVersions.auto,
+                      backgroundColor: Colors.white,
+                      eyeStyle: const QrEyeStyle(
+                        eyeShape: QrEyeShape.square,
+                        color: _kLogoBlack,
+                      ),
+                      dataModuleStyle: const QrDataModuleStyle(
+                        dataModuleShape: QrDataModuleShape.square,
+                        color: _kLogoBlack,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: _kSoft,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: SelectableText(
+                    invite.url,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      height: 1.3,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                FilledButton.icon(
+                  key: const ValueKey('open-room-copy-link-button'),
+                  onPressed: onCopy,
+                  icon: const Icon(Icons.link_rounded),
+                  label: const Text('링크 복사'),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  key: const ValueKey('open-room-enter-button'),
+                  onPressed: onEnter,
+                  icon: const Icon(Icons.login_rounded),
+                  label: const Text('채팅방 입장'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FriendSelectTile extends StatelessWidget {
+  const _FriendSelectTile({
+    required this.contact,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final AppUser contact;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = contactProfileForLabel(contact.displayName);
+    return ListTile(
+      key: ValueKey('friend-select-${contact.handle}'),
+      onTap: onTap,
+      leading: ProfileAvatar(
+        label: profile.displayName,
+        size: 42,
+        assetPath: profile.avatarAsset,
+      ),
+      title: Text(
+        contact.displayName,
+        style: const TextStyle(fontWeight: FontWeight.w900),
+      ),
+      subtitle: Text('@${contact.handle}'),
+      trailing: Icon(
+        selected ? Icons.check_circle_rounded : Icons.circle_outlined,
+        color: selected ? _kAccentGreen : _kMuted,
+      ),
+    );
+  }
+}
+
+class _ManualHandleAdder extends StatelessWidget {
+  const _ManualHandleAdder({required this.controller, required this.onAdd});
+
+  final TextEditingController controller;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            key: const ValueKey('manual-handle-field'),
+            controller: controller,
+            decoration: const InputDecoration(
+              labelText: '아이디 직접 추가',
+              hintText: 'friend_id',
+              prefixIcon: Icon(Icons.alternate_email_rounded),
+            ),
+            onSubmitted: (_) => onAdd(),
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton.filled(
+          tooltip: '아이디 추가',
+          onPressed: onAdd,
+          icon: const Icon(Icons.add_rounded),
+        ),
+      ],
+    );
+  }
+}
+
+class _OpenChatNotice extends StatelessWidget {
+  const _OpenChatNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _kSelectedGreen,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.info_outline_rounded, color: _kAccentGreen),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '오픈채팅은 등록 친구를 바로 초대하거나 링크만 만들어 공유할 수 있습니다.',
+              style: TextStyle(fontWeight: FontWeight.w800, height: 1.25),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _EmptyRooms extends StatelessWidget {
   const _EmptyRooms({required this.tab});
 
@@ -2722,7 +3833,7 @@ class _EmptyRooms extends StatelessWidget {
       child: Text(
         label,
         style: const TextStyle(
-          color: _kMuted,
+          color: _kHomeMuted,
           fontSize: 14,
           fontWeight: FontWeight.w800,
         ),
@@ -2749,9 +3860,9 @@ class _RevenueTile extends StatelessWidget {
       margin: const EdgeInsets.symmetric(vertical: 2),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F8FA),
+        color: _kHomeSurface,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE8E8EC)),
+        border: Border.all(color: _kHomeBorder),
       ),
       child: Row(
         children: [
@@ -2760,7 +3871,7 @@ class _RevenueTile extends StatelessWidget {
             height: 42,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: _kHomeSoft,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(icon, color: _kAccentGreen),
@@ -2776,7 +3887,7 @@ class _RevenueTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: _kInk,
+                    color: _kHomeInk,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -2786,7 +3897,7 @@ class _RevenueTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    color: _kMuted,
+                    color: _kHomeMuted,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
@@ -2798,7 +3909,7 @@ class _RevenueTile extends StatelessWidget {
           const Text(
             '광고',
             style: TextStyle(
-              color: _kMuted,
+              color: _kHomeMuted,
               fontSize: 11,
               fontWeight: FontWeight.w800,
             ),
@@ -2824,12 +3935,15 @@ class _ErrorState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.wifi_off_rounded, color: _kMuted, size: 32),
+            const Icon(Icons.wifi_off_rounded, color: _kHomeMuted, size: 32),
             const SizedBox(height: 12),
             Text(
               message,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.w800),
+              style: const TextStyle(
+                color: _kHomeInk,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             if (detail != null) ...[
               const SizedBox(height: 6),
@@ -2838,7 +3952,7 @@ class _ErrorState extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: _kMuted, fontSize: 12),
+                style: const TextStyle(color: _kHomeMuted, fontSize: 12),
               ),
             ],
             if (onRetry != null) ...[
@@ -2857,75 +3971,27 @@ class _ErrorState extends StatelessWidget {
 }
 
 class _StoryAvatar extends StatelessWidget {
-  const _StoryAvatar({required this.label, required this.size, this.icon});
+  const _StoryAvatar({
+    required this.label,
+    required this.size,
+    this.avatarAsset,
+    this.icon,
+  });
 
   final String label;
   final double size;
+  final String? avatarAsset;
   final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
-    final initial = label.trim().isEmpty ? '?' : label.trim()[0].toUpperCase();
-    final colors = _avatarColors(label);
-    return Container(
-      width: size,
-      height: size,
-      padding: EdgeInsets.all(size * 0.045),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: colors,
-        ),
-      ),
-      child: Container(
-        alignment: Alignment.center,
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          shape: BoxShape.circle,
-        ),
-        child: Container(
-          width: size * 0.83,
-          height: size * 0.83,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                colors.last.withValues(alpha: 0.88),
-                colors.first.withValues(alpha: 0.88),
-              ],
-            ),
-          ),
-          child: icon == null
-              ? Text(
-                  initial,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: size * 0.36,
-                    fontWeight: FontWeight.w900,
-                  ),
-                )
-              : Icon(icon, color: Colors.white, size: size * 0.44),
-        ),
-      ),
+    return ProfileAvatar(
+      label: label,
+      size: size,
+      assetPath: avatarAsset,
+      icon: icon,
     );
   }
-}
-
-List<Color> _avatarColors(String seed) {
-  final palettes = [
-    const [Color(0xFF35C987), Color(0xFF00A86B)],
-    const [Color(0xFF40D6A0), Color(0xFF009E74)],
-    const [Color(0xFF5BDB91), Color(0xFF119B4F)],
-    const [Color(0xFF48D39A), Color(0xFF008F6E)],
-    const [Color(0xFF2ECF82), Color(0xFF0D9C87)],
-  ];
-  final hash = seed.codeUnits.fold<int>(0, (value, unit) => value + unit);
-  return palettes[hash % palettes.length];
 }
 
 String _relativeTime(DateTime value) {

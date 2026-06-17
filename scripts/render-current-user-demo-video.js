@@ -8,12 +8,12 @@ const {pathToFileURL} = require("node:url");
 
 const repoRoot = path.resolve(__dirname, "..");
 const outDir = path.join(repoRoot, "artifacts", "demo");
-const htmlPath = path.join(outDir, "voice_messenger_current_user_demo.html");
-const rawWebmPath = path.join(outDir, "voice_messenger_current_user_demo.raw.webm");
-const webmPath = path.join(outDir, "voice_messenger_current_user_demo.webm");
-const mp4Path = path.join(outDir, "voice_messenger_current_user_demo.mp4");
-const previewPath = path.join(outDir, "voice_messenger_current_user_demo_preview.png");
-const storyboardPath = path.join(outDir, "voice_messenger_current_user_demo_storyboard.md");
+const htmlPath = path.join(outDir, "verbal_current_user_demo.html");
+const rawWebmPath = path.join(outDir, "verbal_current_user_demo.raw.webm");
+const webmPath = path.join(outDir, "verbal_current_user_demo.webm");
+const mp4Path = path.join(outDir, "verbal_current_user_demo.mp4");
+const previewPath = path.join(outDir, "verbal_current_user_demo_preview.png");
+const storyboardPath = path.join(outDir, "verbal_current_user_demo_storyboard.md");
 
 main().catch((error) => {
   console.error(error);
@@ -102,7 +102,7 @@ async function main() {
 }
 
 function storyboardMarkdown() {
-  return `# Voice Messenger Current User Demo
+  return `# Verbal Current User Demo
 
 Maximum length: 49 seconds.
 
@@ -305,7 +305,7 @@ function demoHtml() {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Voice Messenger Current User Demo</title>
+  <title>Verbal Current User Demo</title>
   <style>
     html, body { margin: 0; width: 100%; height: 100%; background: #E8FFF2; overflow: hidden; }
     body { display: grid; place-items: center; }
@@ -441,7 +441,7 @@ function auth(t) {
   status();
   gradientCircle(540, 230, 82);
   text("V", 540, 184, 78, 900, "#fff", "center");
-  text("Voice Messenger", 540, 350, 54, 900, ink, "center");
+  text("Verbal", 540, 350, 54, 900, ink, "center");
   text("전화번호로 시작", 540, 422, 32, 700, muted, "center");
   fillRound(92, 548, 896, 88, 26, soft);
   text("+82 10 4821 0927", 132, 570, 36, 900, ink);

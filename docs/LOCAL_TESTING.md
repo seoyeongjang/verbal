@@ -22,7 +22,7 @@ If that port is already in use, pass another port:
 .\scripts\run-local-web.ps1 -Port 55174
 ```
 
-The script forces `VOICE_MESSENGER_DEMO=true`, so it does not require Firebase Auth, Firebase Storage, Cloud Functions, Deepgram API keys, or Google Play app registration.
+The script forces `VERBAL_DEMO=true`, so it does not require Firebase Auth, Firebase Storage, Cloud Functions, Deepgram API keys, or Google Play app registration.
 
 If you need real speech-to-text instead of the fixed demo transcript, use `docs/LOCAL_STT_TESTING.md` and run:
 
@@ -44,8 +44,8 @@ Use this path for fast MVP checks:
 - text message send
 - microphone permission request
 - voice recording
-- confirm-before-send flow
-- instant-send pending flow
+- automatic voice send after STT succeeds
+- STT recovery flow
 - local audio playback
 
 ## Windows Desktop Demo

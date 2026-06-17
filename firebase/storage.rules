@@ -12,6 +12,12 @@ service firebase.storage {
         && request.auth.uid in firestore.get(/databases/(default)/documents/rooms/$(roomId)).data.participantIds;
     }
 
+    function isRoomMember(roomId) {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/rooms/$(roomId)/members/$(request.auth.uid))
+        && !('leftAt' in firestore.get(/databases/(default)/documents/rooms/$(roomId)/members/$(request.auth.uid)).data);
+    }
+
     function isAudioUpload() {
       return request.resource != null
         && request.resource.contentType.matches('audio/.*');
@@ -30,14 +36,14 @@ service firebase.storage {
     }
 
     match /voice_messages/{roomId}/{fileName} {
-      allow read: if isRoomParticipant(roomId);
+      allow read: if isRoomParticipant(roomId) || isRoomMember(roomId);
       allow write: if false;
       allow delete: if false;
     }
 
     match /attachments/{roomId}/{uid}/{fileName} {
-      allow read: if isRoomParticipant(roomId);
-      allow write: if isRoomParticipant(roomId)
+      allow read: if isRoomParticipant(roomId) || isRoomMember(roomId);
+      allow write: if (isRoomParticipant(roomId) || isRoomMember(roomId))
         && request.auth.uid == uid
         && isAttachmentUpload();
       allow delete: if false;

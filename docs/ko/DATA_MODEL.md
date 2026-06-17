@@ -30,6 +30,17 @@
 - 클라이언트 read는 본인 일정만 허용하고, client create/update/delete는
   금지합니다. 모든 쓰기는 Cloud Functions를 통해 수행합니다.
 
+`users/{uid}/friends/{friendUid}`
+
+- `uid`: 친구 사용자 ID. `{friendUid}`와 같습니다.
+- `displayName`: 친구 선택 화면에서 사용할 캐시된 표시 이름.
+- `handle`: 캐시된 친구 아이디.
+- `defaultSendMode`: 표시 호환성을 위해 보관하는 기본 전송 모드.
+- `photoUrl`: 선택 캐시 프로필 이미지.
+- `addedAt`, `updatedAt`.
+- 클라이언트 read는 본인 친구 목록만 허용하고, client write는 금지합니다.
+  친구 추가는 `addFriendByHandle` Cloud Function을 통해 수행합니다.
+
 `handles/{handle}`
 
 - `uid`: 핸들 소유 사용자 ID.
@@ -114,13 +125,18 @@
 
 ## Storage
 
-- `voice_drafts/{uid}/{draftId}.m4a`: 메시지 전송 전 확인 또는 캘린더
-  의도 파싱을 기다리는 임시 음성파일.
+- `voice_drafts/{uid}/{draftId}.m4a`: 메시지 STT 또는 캘린더 의도 파싱을
+  기다리는 임시 음성파일.
 - `voice_messages/{roomId}/{messageId}.m4a`: 전송된 음성 메시지 파일.
 
 ## 백엔드 계약
 
 모바일 앱은 음성파일을 Storage에 업로드한 뒤 Cloud Functions를 호출합니다. 메시지 문서는 Cloud Functions만 생성하므로 참가자 권한, transcript 상태, 알림, 사용량 모니터링, 음성 보존기간을 서버에서 중앙 관리합니다.
+
+친구 추가는 `addFriendByHandle`을 통해 `users/{uid}/friends/{friendUid}`에
+저장합니다. 채팅방 생성은 계속 participant handle을 사용하지만, 모바일
+친구 선택기는 저장된 친구가 있으면 친구 목록을 우선 표시하고 검색/탐색이
+필요하면 사용자 디렉터리로 보완합니다.
 
 캘린더 일정은 채팅 메시지와 분리해 `users/{uid}/calendarEvents/{eventId}`에
 저장합니다. 음성 일정 명령은 `createCalendarIntentDraft`에서 STT와 파싱을

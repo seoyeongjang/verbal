@@ -22,7 +22,7 @@ Write-Host "Flutter: $flutter"
 Push-Location $appDir
 try {
   & $flutter pub get
-  & $flutter build web --dart-define=VOICE_MESSENGER_DEMO=true
+  & $flutter build web --dart-define=VERBAL_DEMO=true
 }
 finally {
   Pop-Location

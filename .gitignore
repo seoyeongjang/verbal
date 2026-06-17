@@ -5,11 +5,21 @@ apps/mobile/.flutter-plugins-dependencies
 apps/mobile/build/
 dist/
 artifacts/
+device_*.png
+verbal_*.png
+window*.xml
+voice_test_client_*.wav
+voice_test_client_*.m4a
+tmp_*.txt
+tmp_voice_analysis/
 
 # Firebase Functions
 functions/lib/
 functions/node_modules/
 functions/.runtimeconfig.json
+services/*/node_modules/
+services/*/*.log
+services/*/services/
 
 # Firebase logs
 firebase-debug.log

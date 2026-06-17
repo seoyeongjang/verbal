@@ -4,6 +4,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import '../../models/messenger_models.dart';
 import '../../services/messenger_backend.dart';
+import '../shared/profile_avatar.dart';
 
 const _kAccentGreen = Color(0xFF00A86B);
 const _kInk = Color(0xFF111111);
@@ -455,10 +456,19 @@ class _RoomInfoScreenState extends State<RoomInfoScreen> {
                   ),
                 ),
                 for (final id in participantIds)
-                  ListTile(
-                    leading: _InitialAvatar(label: id, size: 34),
-                    title: Text(id),
-                    onTap: () => Navigator.of(context).pop(id),
+                  Builder(
+                    builder: (context) {
+                      final profile = contactProfileForLabel(id);
+                      return ListTile(
+                        leading: _InitialAvatar(
+                          label: profile.displayName,
+                          size: 34,
+                          avatarAsset: profile.avatarAsset,
+                        ),
+                        title: Text(profile.displayName),
+                        onTap: () => Navigator.of(context).pop(id),
+                      );
+                    },
                   ),
               ],
             ),
@@ -564,13 +574,20 @@ class _RoomHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final profile = contactProfileForLabel(room.title);
     return Center(
       child: Column(
         children: [
-          _InitialAvatar(label: room.title, size: 76),
+          _InitialAvatar(
+            label: profile.displayName,
+            size: 76,
+            avatarAsset: room.type == RoomType.direct
+                ? profile.avatarAsset
+                : null,
+          ),
           const SizedBox(height: 12),
           Text(
-            room.title,
+            profile.displayName,
             textAlign: TextAlign.center,
             style: const TextStyle(
               color: _kInk,
@@ -580,7 +597,11 @@ class _RoomHeader extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            room.type == RoomType.group ? '그룹 대화' : '1:1 대화',
+            switch (room.type) {
+              RoomType.group => '그룹 대화',
+              RoomType.open => '오픈채팅',
+              RoomType.direct => '1:1 대화',
+            },
             style: const TextStyle(color: _kMuted, fontWeight: FontWeight.w700),
           ),
         ],
@@ -695,48 +716,56 @@ class _MembersSection extends StatelessWidget {
       children: [
         const _SectionTitle('멤버'),
         for (final member in members)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: _InitialAvatar(
-              label: member.displayName ?? member.handle ?? member.uid,
-              size: 38,
-            ),
-            title: Text(member.displayName ?? member.uid),
-            subtitle: Text(
-              member.handle == null ? member.uid : '@${member.handle}',
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _RoleChip(role: member.role),
-                if (canManage && member.uid != currentUid)
-                  PopupMenuButton<String>(
-                    tooltip: '멤버 관리',
-                    onSelected: (value) {
-                      if (value == 'remove') {
-                        onRemove(member);
-                        return;
-                      }
-                      onRoleChanged(member, RoomMemberRole.fromWire(value));
-                    },
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'admin',
-                        child: Text('관리자로 지정'),
+          Builder(
+            builder: (context) {
+              final rawLabel =
+                  member.displayName ?? member.handle ?? member.uid;
+              final profile = contactProfileForLabel(rawLabel);
+              return ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: _InitialAvatar(
+                  label: profile.displayName,
+                  size: 38,
+                  avatarAsset: profile.avatarAsset,
+                ),
+                title: Text(profile.displayName),
+                subtitle: Text(
+                  member.handle == null ? member.uid : '@${member.handle}',
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _RoleChip(role: member.role),
+                    if (canManage && member.uid != currentUid)
+                      PopupMenuButton<String>(
+                        tooltip: '멤버 관리',
+                        onSelected: (value) {
+                          if (value == 'remove') {
+                            onRemove(member);
+                            return;
+                          }
+                          onRoleChanged(member, RoomMemberRole.fromWire(value));
+                        },
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(
+                            value: 'admin',
+                            child: Text('관리자로 지정'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'member',
+                            child: Text('멤버로 지정'),
+                          ),
+                          if (member.role != RoomMemberRole.owner)
+                            const PopupMenuItem(
+                              value: 'remove',
+                              child: Text('내보내기'),
+                            ),
+                        ],
                       ),
-                      const PopupMenuItem(
-                        value: 'member',
-                        child: Text('멤버로 지정'),
-                      ),
-                      if (member.role != RoomMemberRole.owner)
-                        const PopupMenuItem(
-                          value: 'remove',
-                          child: Text('내보내기'),
-                        ),
-                    ],
-                  ),
-              ],
-            ),
+                  ],
+                ),
+              );
+            },
           ),
       ],
     );
@@ -801,28 +830,39 @@ class _JoinRequestsSection extends StatelessWidget {
             children: [
               const _SectionTitle('참여 요청'),
               for (final request in requests)
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: _InitialAvatar(label: request.label, size: 36),
-                  title: Text(request.label),
-                  subtitle: Text(
-                    request.handle == null ? request.uid : '@${request.handle}',
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: '거절',
-                        onPressed: busy ? null : () => onReject(request),
-                        icon: const Icon(Icons.close_rounded),
+                Builder(
+                  builder: (context) {
+                    final profile = contactProfileForLabel(request.label);
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: _InitialAvatar(
+                        label: profile.displayName,
+                        size: 36,
+                        avatarAsset: profile.avatarAsset,
                       ),
-                      IconButton(
-                        tooltip: '승인',
-                        onPressed: busy ? null : () => onApprove(request),
-                        icon: const Icon(Icons.check_rounded),
+                      title: Text(profile.displayName),
+                      subtitle: Text(
+                        request.handle == null
+                            ? request.uid
+                            : '@${request.handle}',
                       ),
-                    ],
-                  ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            tooltip: '거절',
+                            onPressed: busy ? null : () => onReject(request),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                          IconButton(
+                            tooltip: '승인',
+                            onPressed: busy ? null : () => onApprove(request),
+                            icon: const Icon(Icons.check_rounded),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
             ],
           ),
@@ -993,35 +1033,18 @@ class _SectionTitle extends StatelessWidget {
 }
 
 class _InitialAvatar extends StatelessWidget {
-  const _InitialAvatar({required this.label, required this.size});
+  const _InitialAvatar({
+    required this.label,
+    required this.size,
+    this.avatarAsset,
+  });
 
   final String label;
   final double size;
+  final String? avatarAsset;
 
   @override
   Widget build(BuildContext context) {
-    final initial = label.trim().isEmpty ? '?' : label.trim()[0].toUpperCase();
-    return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF35C987), Color(0xFF00A86B), Color(0xFF008F6E)],
-        ),
-        border: Border.all(color: Colors.white, width: 2),
-      ),
-      child: Text(
-        initial,
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: size * 0.38,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-    );
+    return ProfileAvatar(label: label, size: size, assetPath: avatarAsset);
   }
 }

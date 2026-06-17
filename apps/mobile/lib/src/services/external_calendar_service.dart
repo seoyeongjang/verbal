@@ -7,7 +7,7 @@ enum ExternalCalendarTarget { google, apple }
 class ExternalCalendarService {
   ExternalCalendarService._();
 
-  static const _channel = MethodChannel('voice_messenger/external_calendar');
+  static const _channel = MethodChannel('verbal/external_calendar');
 
   static Future<bool> addEvent(
     CalendarEvent event, {
@@ -38,6 +38,6 @@ class ExternalCalendarService {
     if (transcript.isNotEmpty) {
       return transcript;
     }
-    return 'Voice Messenger 일정';
+    return 'Verbal 일정';
   }
 }

@@ -2,7 +2,7 @@ param(
   [string]$ProjectId = "voice-messenger-jangs-260522",
   [string]$ProjectNumber = "203811587610",
   [string]$BillingAccountId = "019D7D-328A8B-D6DB84",
-  [string]$DisplayName = "Firebase Project voice-messenger-jangs-260522",
+  [string]$DisplayName = "Firebase Project Verbal",
   [int]$BudgetKrw = 50000
 )
 

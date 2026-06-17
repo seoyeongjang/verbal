@@ -16,7 +16,7 @@ class FirebaseAppConfig {
   );
   static const iosBundleId = String.fromEnvironment(
     'FIREBASE_IOS_BUNDLE_ID',
-    defaultValue: 'com.voicebeta.voiceMessenger',
+    defaultValue: 'com.voicebeta.verbal',
   );
 
   static FirebaseOptions? get currentPlatform {

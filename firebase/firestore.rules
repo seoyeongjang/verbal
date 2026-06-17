@@ -61,6 +61,126 @@ service cloud.firestore {
         && roomMember(roomId, request.auth.uid).data.role in ['owner', 'admin'];
     }
 
+    function validMessageReply(replyTo) {
+      return replyTo == null
+        || (replyTo is map
+          && replyTo.keys().hasOnly(['messageId', 'senderId', 'preview'])
+          && replyTo.messageId is string
+          && replyTo.messageId.size() > 0
+          && replyTo.messageId.size() <= 128
+          && replyTo.senderId is string
+          && replyTo.senderId.size() > 0
+          && replyTo.senderId.size() <= 128
+          && replyTo.preview is string
+          && replyTo.preview.size() <= 120);
+    }
+
+    function validClientTextMessage(roomId) {
+      return isRoomParticipant(roomId)
+        && request.resource.data.keys().hasOnly([
+          'senderId',
+          'kind',
+          'text',
+          'transcript',
+          'audioPath',
+          'durationMs',
+          'sttStatus',
+          'sendMode',
+          'replyTo',
+          'deliveryStatus',
+          'clientCreated',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'senderId',
+          'kind',
+          'text',
+          'transcript',
+          'audioPath',
+          'durationMs',
+          'sttStatus',
+          'sendMode',
+          'deliveryStatus',
+          'clientCreated',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.senderId == request.auth.uid
+        && request.resource.data.kind == 'text'
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 4000
+        && request.resource.data.transcript == ''
+        && request.resource.data.audioPath == null
+        && request.resource.data.durationMs == 0
+        && request.resource.data.sttStatus == 'none'
+        && request.resource.data.sendMode in ['confirm', 'instant']
+        && request.resource.data.deliveryStatus == 'sent'
+        && request.resource.data.clientCreated == true
+        && validMessageReply(request.resource.data.replyTo)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validClientPendingVoiceMessage(roomId) {
+      return isRoomParticipant(roomId)
+        && request.resource.data.keys().hasOnly([
+          'senderId',
+          'kind',
+          'text',
+          'transcript',
+          'audioPath',
+          'durationMs',
+          'sttStatus',
+          'sendMode',
+          'language',
+          'replyTo',
+          'deliveryStatus',
+          'clientCreated',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'senderId',
+          'kind',
+          'text',
+          'transcript',
+          'audioPath',
+          'durationMs',
+          'sttStatus',
+          'sendMode',
+          'deliveryStatus',
+          'clientCreated',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.senderId == request.auth.uid
+        && request.resource.data.kind == 'voice'
+        && request.resource.data.text is string
+        && request.resource.data.text.size() <= 4000
+        && request.resource.data.transcript == request.resource.data.text
+        && request.resource.data.audioPath == null
+        && request.resource.data.durationMs is number
+        && request.resource.data.durationMs >= 500
+        && (
+          (request.resource.data.text == ''
+            && request.resource.data.sttStatus == 'processing')
+          || (request.resource.data.text.size() > 0
+            && request.resource.data.sttStatus == 'completed')
+        )
+        && request.resource.data.sendMode in ['confirm', 'instant']
+        && (!('language' in request.resource.data)
+          || (request.resource.data.language is string
+            && request.resource.data.language.size() > 0
+            && request.resource.data.language.size() <= 20))
+        && request.resource.data.deliveryStatus == 'sending'
+        && request.resource.data.clientCreated == true
+        && validMessageReply(request.resource.data.replyTo)
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+    }
+
     match /users/{uid} {
       allow read: if signedIn();
       allow create, update: if isSelf(uid)
@@ -95,6 +215,11 @@ service cloud.firestore {
         allow read: if isSelf(uid);
         allow create, update, delete: if false;
       }
+
+      match /friends/{friendUid} {
+        allow read: if isSelf(uid);
+        allow create, update, delete: if false;
+      }
     }
 
     match /handles/{handle} {
@@ -118,7 +243,9 @@ service cloud.firestore {
 
       match /messages/{messageId} {
         allow read: if isRoomParticipant(roomId);
-        allow create, update, delete: if false;
+        allow create: if validClientTextMessage(roomId)
+          || validClientPendingVoiceMessage(roomId);
+        allow update, delete: if false;
       }
 
       match /calendarProposals/{proposalId} {

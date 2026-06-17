@@ -10,13 +10,13 @@ Console app record.
 
 ## App Identity
 
-- App name: Voice Messenger
+- App name: Verbal
 - Default language: Korean
 - App type: App
 - Category: Communication
-- Package name: `com.voicebeta.voice_messenger`
+- Package name: `com.voicebeta.verbal`
 - Firebase project: `voice-messenger-jangs-260522`
-- Android Firebase App ID: `1:203811587610:android:713b3d7faece49f920f3a3`
+- Android Firebase App ID: `1:203811587610:android:60b60d74b332290520f3a3`
 
 ## Store Listing Draft
 
