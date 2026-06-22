@@ -35,6 +35,9 @@ ui-debug.log
 apps/mobile/android/key.properties
 apps/mobile/android/app/upload-keystore.jks
 
+# Local-only handoff/private notes
+.codex-local/
+
 # OS and IDE
 .DS_Store
 Thumbs.db
