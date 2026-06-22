@@ -35,6 +35,8 @@ Korean translation: `docs/ko/ANALYTICS_EVENT_TAXONOMY.md`
 - `send_failed`
 - `upload_failed`
 - `push_token_registered`
+- `global_search_used`
+- `suspicious_link_warning_shown`
 
 ## Crashlytics Keys
 
@@ -45,5 +47,6 @@ Korean translation: `docs/ko/ANALYTICS_EVENT_TAXONOMY.md`
 - `app_backend_mode`
 - `platform`
 
-Runtime Firebase Analytics/Crashlytics package wiring still needs to be added
-before a release build if crash reporting is required in the first beta.
+Runtime Firebase Analytics/Crashlytics package wiring is now present in the
+Flutter Firebase mode. Release validation still needs dashboard verification for
+event ingestion, Crashlytics crash grouping, and non-debug collection settings.

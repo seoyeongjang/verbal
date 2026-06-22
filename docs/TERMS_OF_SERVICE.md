@@ -2,6 +2,8 @@
 
 Korean translation: `docs/ko/TERMS_OF_SERVICE.md`
 
+Public URL: `https://verbal.chat/terms`
+
 ## Acceptable Use
 
 Users may not use Verbal for spam, harassment, illegal content,
@@ -30,4 +32,4 @@ During beta, features may change and the service may have interruptions.
 
 ## Contact
 
-Set the production legal/support contact before public launch.
+Terms questions can be sent to `support@verbal.chat`.

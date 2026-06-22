@@ -2,6 +2,8 @@
 
 원문: `docs/PRIVACY_POLICY.md`
 
+공개 URL: `https://verbal.chat/privacy`
+
 Verbal은 인증, 메시징, 음성 변환, 안전, 알림, 서비스 운영에 필요한
 최소 데이터를 처리합니다.
 
@@ -36,4 +38,4 @@ Verbal은 인증, 메시징, 음성 변환, 안전, 알림, 서비스 운영에 
 
 ## 문의
 
-스토어 제출 전 production 지원 이메일과 URL을 확정해야 합니다.
+개인정보와 데이터 삭제 문의는 `support@verbal.chat`으로 보낼 수 있습니다.

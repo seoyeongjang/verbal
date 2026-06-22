@@ -25,6 +25,11 @@
 - 방 기본 음성파일 보존기간은 1일입니다.
 - 방 관리자는 1일, 7일, 사용자 지정 1-30일 중 선택할 수 있습니다.
 - `expireVoiceAudio`는 매시간 만료된 음성파일을 삭제하고 transcript는 유지합니다.
+- 에뮬레이터 검증은 `functions/`에서 `npm run verify:audio-retention`을
+  실행합니다. 운영 probe 검증은
+  `VERIFY_AUDIO_RETENTION_PROD=1 npm run verify:audio-retention:prod`로
+  실행하며, `retention_probe_*` 테스트 문서/파일을 만든 뒤 transcript 보존
+  검증이 끝나면 자동 삭제합니다.
 - Storage rules는 음성 업로드에 고정 용량 제한을 두지 않습니다.
 - 베타 확대 전 `usageDaily`, `audioRetentionStatus`, `sttCacheHit`를 확인합니다.
 

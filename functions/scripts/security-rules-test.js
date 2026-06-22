@@ -167,6 +167,33 @@ async function seedFirestore(testEnv) {
       audioPath: "voice_drafts/alice/a.webm",
       createdAt: serverTimestamp(),
     });
+    await setDoc(doc(db, "pluginPartners/demoPartner"), {
+      name: "Demo Partner",
+      status: "active",
+      enabledFeatures: ["voiceTranscription", "messageCards"],
+      defaultAudioRetentionDays: 1,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    await setDoc(doc(db, "pluginPartners/demoPartner/apiKeys/default"), {
+      keyHash: "hash-only",
+      status: "active",
+      createdAt: serverTimestamp(),
+    });
+    await setDoc(doc(db, "pluginAudio/audioA"), {
+      partnerId: "demoPartner",
+      storagePath: "plugin_audio/demoPartner/audioA.m4a",
+      contentType: "audio/mp4",
+      transcript: "hello",
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      createdAt: serverTimestamp(),
+    });
+    await setDoc(doc(db, "pluginUsageDaily/demoPartner_2026-06-17"), {
+      partnerId: "demoPartner",
+      date: "2026-06-17",
+      transcriptionCount: 1,
+      updatedAt: serverTimestamp(),
+    });
   });
 }
 
@@ -184,6 +211,23 @@ async function runFirestoreTests(testEnv) {
       handle: "alice_1",
       defaultSendMode: "confirm",
       holidayCountryCode: "US",
+      termsVersion: "terms-2026-06-18",
+      privacyVersion: "privacy-2026-06-18",
+      communityPolicyVersion: "community-2026-06-18",
+      policyAcceptedAt: serverTimestamp(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    }),
+  );
+  await assertFails(
+    setDoc(doc(alice, "users/alice"), {
+      displayName: "Alice",
+      handle: "alice_1",
+      defaultSendMode: "confirm",
+      termsVersion: "",
+      privacyVersion: "privacy-2026-06-18",
+      communityPolicyVersion: "community-2026-06-18",
+      policyAcceptedAt: serverTimestamp(),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     }),
@@ -369,6 +413,17 @@ async function runFirestoreTests(testEnv) {
   await assertSucceeds(getDoc(doc(alice, "transcriptionDrafts/draftA")));
   await assertFails(getDoc(doc(bob, "transcriptionDrafts/draftA")));
   await assertFails(getDoc(doc(alice, "reports/reportA")));
+  await assertFails(getDoc(doc(alice, "pluginPartners/demoPartner")));
+  await assertFails(
+    getDoc(doc(alice, "pluginPartners/demoPartner/apiKeys/default")),
+  );
+  await assertFails(getDoc(doc(alice, "pluginAudio/audioA")));
+  await assertFails(getDoc(doc(alice, "pluginUsageDaily/demoPartner_2026-06-17")));
+  await assertFails(
+    setDoc(doc(alice, "pluginPartners/demoPartner"), {
+      status: "active",
+    }),
+  );
 }
 
 async function runStorageTests(testEnv) {
@@ -435,6 +490,19 @@ async function runStorageTests(testEnv) {
   );
   await assertFails(
     getStorageDownloadUrl(guest, "attachments/roomA/alice/file.txt"),
+  );
+  await assertFails(
+    uploadString(
+      ref(alice, "plugin_audio/demoPartner/audioA.m4a"),
+      "audio",
+      "raw",
+      {
+        contentType: "audio/mp4",
+      },
+    ),
+  );
+  await assertFails(
+    getStorageDownloadUrl(alice, "plugin_audio/demoPartner/audioA.m4a"),
   );
 }
 

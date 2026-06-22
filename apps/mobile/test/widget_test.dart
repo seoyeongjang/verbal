@@ -42,12 +42,22 @@ void main() {
     LocationPicker.debugPick = null;
   });
 
+  Future<void> acceptRequiredPolicies(WidgetTester tester) async {
+    await tester.tap(find.byKey(const ValueKey('terms-consent-checkbox')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('privacy-consent-checkbox')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('community-consent-checkbox')));
+    await tester.pumpAndSettle();
+  }
+
   Future<void> openHome(WidgetTester tester) async {
     await tester.binding.setSurfaceSize(const Size(430, 860));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(VerbalApp(backend: DemoMessengerBackend()));
     await tester.pumpAndSettle();
-    await tester.tap(find.byType(FilledButton).first);
+    await acceptRequiredPolicies(tester);
+    await tester.tap(find.widgetWithText(FilledButton, '데모로 시작'));
     await tester.pumpAndSettle();
   }
 
@@ -77,6 +87,32 @@ void main() {
     await tester.drag(find.byType(Scrollable).first, const Offset(0, -300));
     await tester.pumpAndSettle();
   }
+
+  testWidgets('auth screen requires policy consent before demo sign-in', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 860));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(VerbalApp(backend: DemoMessengerBackend()));
+    await tester.pumpAndSettle();
+
+    expect(find.text('필수 동의'), findsOneWidget);
+    final disabledButton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '데모로 시작'),
+    );
+    expect(disabledButton.onPressed, isNull);
+
+    await acceptRequiredPolicies(tester);
+
+    final enabledButton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, '데모로 시작'),
+    );
+    expect(enabledButton.onPressed, isNotNull);
+
+    await tester.tap(find.widgetWithText(FilledButton, '데모로 시작'));
+    await tester.pumpAndSettle();
+    expect(find.text('demo'), findsWidgets);
+  });
 
   test('demo voice transcript requires an enabled STT engine', () async {
     final backend = DemoMessengerBackend();

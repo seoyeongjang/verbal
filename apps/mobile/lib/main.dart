@@ -13,6 +13,7 @@ import 'src/services/firebase_app_config.dart';
 import 'src/services/firebase_backend.dart';
 import 'src/services/local_stt_transcriber.dart';
 import 'src/services/messenger_backend.dart';
+import 'src/services/telemetry_service.dart';
 import 'src/ui/auth/auth_screen.dart';
 import 'src/ui/home/home_screen.dart';
 import 'src/ui/profile/profile_setup_screen.dart';
@@ -35,11 +36,14 @@ Future<void> main() async {
     backend = DemoMessengerBackend(
       transcriber: LocalSttTranscriber(endpoint: localSttEndpoint).transcribe,
     );
+    await AppTelemetry.configure(enabled: false, backendMode: 'local_stt');
   } else if (forceDemo || firebaseOptions == null) {
     backend = DemoMessengerBackend();
+    await AppTelemetry.configure(enabled: false, backendMode: 'demo');
   } else {
     await Firebase.initializeApp(options: firebaseOptions);
     backend = FirebaseMessengerBackend();
+    await AppTelemetry.configure(enabled: true, backendMode: 'firebase');
   }
 
   runApp(VerbalApp(backend: backend));

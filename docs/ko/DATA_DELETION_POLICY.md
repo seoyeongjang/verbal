@@ -18,6 +18,8 @@
 ## 구현 방식
 
 - 모바일 앱: `메뉴 -> 계정 관리 -> 계정 삭제`.
+- 웹 삭제 요청 페이지: `https://verbal.chat/account/delete`.
+- 데이터 삭제 정책 페이지: `https://verbal.chat/data-deletion`.
 - Firebase callable: `deleteMyAccount`.
 - 데이터 내보내기 callable: `exportMyData`.
 - Firestore 정리 후 Firebase Admin SDK로 Auth 사용자를 삭제합니다.
@@ -30,6 +32,8 @@
 
 ## 운영 확인
 
+- Firebase Hosting을 배포한 뒤 Google Play Console에 URL을 입력하기 전에
+  `/account/delete`와 `/data-deletion`이 HTTPS로 열리는지 확인합니다.
 - 삭제된 Firebase Auth 계정으로 다시 로그인할 수 없는지 확인합니다.
 - 삭제된 아이디가 기존 UID를 더 이상 가리키지 않는지 확인합니다.
 - 대화방 활성 멤버 목록에 삭제 사용자가 남지 않는지 확인합니다.

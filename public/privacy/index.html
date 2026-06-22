@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Verbal 개인정보처리방침</title>
+    <meta
+      name="description"
+      content="Verbal이 처리하는 개인정보, 음성 STT, 데이터 보존, 사용자 권리를 안내합니다."
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #111111;
+        --muted: #60646c;
+        --line: #e8ecea;
+        --soft: #effaf4;
+        --brand: #00a86b;
+        --brand-dark: #007a54;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: #f7fbf8;
+        color: var(--ink);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.55;
+      }
+
+      main {
+        width: min(760px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 56px 0;
+      }
+
+      article {
+        background: #ffffff;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        padding: 28px;
+        box-shadow: 0 18px 46px rgba(17, 17, 17, 0.07);
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: clamp(30px, 6vw, 48px);
+        letter-spacing: 0;
+        line-height: 1.08;
+      }
+
+      h2 {
+        margin: 28px 0 10px;
+        font-size: 20px;
+      }
+
+      p,
+      li {
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      ul {
+        padding-left: 22px;
+      }
+
+      a {
+        color: var(--brand-dark);
+        font-weight: 800;
+      }
+
+      .note {
+        margin-top: 22px;
+        border-left: 4px solid var(--brand);
+        background: var(--soft);
+        border-radius: 14px;
+        padding: 14px 16px;
+      }
+
+      footer {
+        margin-top: 18px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <article>
+        <h1>개인정보처리방침</h1>
+        <p>
+          Verbal은 인증, 메시징, 음성 STT, 안전, 알림, 서비스 운영에 필요한
+          최소한의 데이터를 처리합니다.
+        </p>
+
+        <h2>처리하는 데이터</h2>
+        <ul>
+          <li>전화번호 인증 식별자</li>
+          <li>사용자 아이디, 표시 이름, 프로필 정보</li>
+          <li>메시지, 음성 파일, transcript, 첨부파일, 공유 위치</li>
+          <li>대화방 멤버십, 초대 링크, 신고, 차단, 안전 metadata</li>
+          <li>푸시 알림 토큰과 서비스 안정성/비용 관리를 위한 사용 진단 정보</li>
+        </ul>
+
+        <h2>음성 및 STT</h2>
+        <p>
+          음성 메시지는 텍스트 변환을 위해 STT로 처리됩니다. 운영 환경에서는
+          Deepgram이 음성 전사를 위해 오디오를 처리할 수 있습니다. 음성 파일은
+          방 단위 보존기간을 따르며 기본값은 1일입니다. 만료 후 음성 파일은
+          삭제되고 transcript는 대화 기록과 검색을 위해 남을 수 있습니다.
+        </p>
+
+        <h2>사용자 제어</h2>
+        <ul>
+          <li>보낸 메시지 삭제</li>
+          <li>권한이 있는 방의 음성 보존기간 변경</li>
+          <li>데이터 및 저장 공간 메뉴에서 계정 데이터 내보내기</li>
+          <li>메뉴의 계정 관리에서 계정 삭제 요청</li>
+          <li>대화방 또는 메시지 신고, 사용자 차단</li>
+        </ul>
+
+        <h2>제3자 처리</h2>
+        <p>
+          Firebase/Google Cloud는 인증, 데이터베이스, 스토리지, Functions, 푸시,
+          로깅, 모니터링 인프라를 제공합니다. Deepgram은 STT 기능을 위해 음성
+          오디오를 처리할 수 있습니다.
+        </p>
+
+        <h2>문의</h2>
+        <p>
+          개인정보와 데이터 삭제 문의는
+          <a href="mailto:support@verbal.chat">support@verbal.chat</a>으로 보낼
+          수 있습니다.
+        </p>
+
+        <div class="note">
+          이 방침은 Verbal 서비스 운영과 스토어 제출에 사용하는 공개 개인정보
+          안내입니다. 변경 사항이 생기면 이 페이지를 통해 고지합니다.
+        </div>
+      </article>
+      <footer>Last updated: 2026-06-18</footer>
+    </main>
+  </body>
+</html>

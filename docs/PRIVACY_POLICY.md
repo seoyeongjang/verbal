@@ -2,6 +2,8 @@
 
 Korean translation: `docs/ko/PRIVACY_POLICY.md`
 
+Public URL: `https://verbal.chat/privacy`
+
 Verbal collects the minimum data needed to provide authentication,
 messaging, voice transcription, safety, notifications, and service operations.
 
@@ -36,4 +38,4 @@ including Firebase/Google Cloud and Deepgram for STT.
 
 ## Contact
 
-Set the production support email and URL before store submission.
+Privacy and data deletion questions can be sent to `support@verbal.chat`.

@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Verbal Voice Composer</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <div class="shell">
+        <section class="hero">
+          <h1>Verbal Voice Composer</h1>
+          <p>Record voice, receive transcript text, and render a messenger-ready card.</p>
+        </section>
+
+        <section class="section">
+          <h2>Partner connection</h2>
+          <div class="grid">
+            <label>
+              Core API base URL
+              <input id="coreApiBase" placeholder="https://.../pluginCoreApi" />
+            </label>
+            <label>
+              Platform
+              <select id="platform">
+                <option value="slack">Slack</option>
+                <option value="telegram">Telegram</option>
+                <option value="teams">Teams</option>
+                <option value="kakao">Kakao</option>
+                <option value="line">LINE</option>
+                <option value="meta">Meta</option>
+                <option value="generic">Generic</option>
+              </select>
+            </label>
+            <label>
+              Partner ID
+              <input id="partnerId" autocomplete="off" />
+            </label>
+            <label>
+              Key ID
+              <input id="keyId" autocomplete="off" />
+            </label>
+            <label>
+              API key
+              <input id="apiKey" autocomplete="off" type="password" />
+            </label>
+            <label>
+              Sender name
+              <input id="senderName" placeholder="Minji" />
+            </label>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>Voice input</h2>
+          <div class="meter" aria-hidden="true">
+            <span class="bar"></span>
+            <span class="bar"></span>
+            <span class="bar"></span>
+            <span class="bar"></span>
+            <span class="bar"></span>
+          </div>
+          <div class="actions">
+            <button id="recordButton">Start recording</button>
+            <button id="stopButton" class="danger" disabled>Stop</button>
+            <label class="button secondary" for="audioFile">Upload audio</label>
+            <input id="audioFile" type="file" accept="audio/*" hidden />
+          </div>
+          <div id="status" class="status">Ready.</div>
+        </section>
+
+        <section class="section">
+          <h2>Transcript</h2>
+          <textarea id="transcript" placeholder="Transcript appears here after transcription."></textarea>
+          <div class="actions">
+            <button id="transcribeButton" disabled>Transcribe audio</button>
+            <button id="cardButton" class="secondary" disabled>Render card</button>
+            <button id="copyTextButton" class="secondary" disabled>Copy text</button>
+          </div>
+          <div id="audioPanel" class="panel" hidden>
+            <strong>Audio link</strong>
+            <p id="audioUrl"></p>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>Card payload</h2>
+          <pre id="cardOutput">{}</pre>
+          <div class="actions">
+            <button id="copyCardButton" class="secondary" disabled>Copy card JSON</button>
+            <button id="shareButton" class="secondary" disabled>Share</button>
+          </div>
+        </section>
+      </div>
+    </main>
+    <script src="/composer/app.js"></script>
+  </body>
+</html>

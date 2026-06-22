@@ -8,7 +8,7 @@ import {
   onDocumentCreated,
   onDocumentUpdated,
 } from "firebase-functions/v2/firestore";
-import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { defineSecret } from "firebase-functions/params";
 import { GoogleAuth } from "google-auth-library";
@@ -17,6 +17,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { parseCalendarCommand } from "./calendar-parser";
+import {
+  pluginAudioExtension,
+  pluginContentType,
+  PluginMessageCardInputError,
+  pluginMessageCardInput,
+  pluginPlatform,
+  renderPluginMessageCard,
+} from "./plugin-platform";
 
 if (getApps().length === 0) {
   initializeApp();
@@ -142,6 +150,24 @@ const STT_FAILED_RECOVERY_MAX_ATTEMPTS = boundedInt(
   0,
   10,
 );
+const PLUGIN_MAX_AUDIO_BYTES = boundedInt(
+  process.env.PLUGIN_MAX_AUDIO_BYTES,
+  15 * 1024 * 1024,
+  128 * 1024,
+  50 * 1024 * 1024,
+);
+const PLUGIN_SIGNED_URL_TTL_MINUTES = boundedInt(
+  process.env.PLUGIN_SIGNED_URL_TTL_MINUTES,
+  15,
+  1,
+  60,
+);
+const PLUGIN_DEFAULT_AUDIO_RETENTION_DAYS = boundedInt(
+  process.env.PLUGIN_DEFAULT_AUDIO_RETENTION_DAYS,
+  1,
+  1,
+  30,
+);
 
 type RoomType = "direct" | "group" | "open";
 type SendMode = "confirm" | "instant";
@@ -157,6 +183,20 @@ type DeliveryStatus = "sending" | "scheduled" | "sent" | "failed";
 type RoomMemberRole = "owner" | "admin" | "member";
 type CalendarEventSource = "manual" | "voice" | "chatProposal";
 type CalendarEventStatus = "active";
+
+interface PluginPartnerData {
+  name?: string;
+  status?: string;
+  allowedOrigins?: string[];
+  enabledFeatures?: string[];
+  defaultAudioRetentionDays?: number;
+}
+
+interface PluginAuthContext {
+  partnerId: string;
+  keyId: string;
+  partner: PluginPartnerData;
+}
 
 interface RoomData {
   type: RoomType;
@@ -504,6 +544,259 @@ export const getOperationalHealth = onCall(
     };
   },
 );
+
+export const pluginCoreApi = onRequest(
+  {
+    secrets: [deepgramApiKey],
+    timeoutSeconds: 180,
+    memory: "512MiB",
+    cors: true,
+  },
+  async (request, response) => {
+    try {
+      if (request.method === "OPTIONS") {
+        response.status(204).end();
+        return;
+      }
+      const route = pluginRoutePath(request.url);
+      if (request.method === "POST" && route === "/v1/transcriptions") {
+        await handlePluginTranscriptionRequest(request, response);
+        return;
+      }
+      if (request.method === "POST" && route === "/v1/message-cards") {
+        await handlePluginMessageCardRequest(request, response);
+        return;
+      }
+      if (request.method === "POST" && route === "/v1/calendar-intents") {
+        await handlePluginCalendarIntentRequest(request, response);
+        return;
+      }
+      if (request.method === "GET" && route.startsWith("/v1/audio/")) {
+        await handlePluginAudioRequest(request, response, route);
+        return;
+      }
+      response.status(404).json({
+        error: {
+          code: "not_found",
+          message: "Plugin API route was not found.",
+        },
+      });
+    } catch (error) {
+      sendPluginError(response, error);
+    }
+  },
+);
+
+interface PluginHttpRequest {
+  method: string;
+  url: string;
+  body?: unknown;
+  header(name: string): string | undefined;
+}
+
+interface PluginHttpResponse {
+  status(code: number): PluginHttpResponse;
+  json(body: unknown): void;
+  redirect(status: number, url: string): void;
+  end(): void;
+}
+
+class PluginApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+async function handlePluginTranscriptionRequest(
+  request: PluginHttpRequest,
+  response: PluginHttpResponse,
+) {
+  const auth = await authenticatePluginRequest(request);
+  const body = pluginJsonBody(request.body);
+  assertPluginFeature(auth, "voiceTranscription");
+  const apiKey = normalizeSecretValue(
+    process.env.DEEPGRAM_API_KEY || deepgramApiKey.value(),
+  );
+  if (!apiKey) {
+    throw new PluginApiError(
+      503,
+      "stt_unavailable",
+      "DEEPGRAM_API_KEY is not configured.",
+    );
+  }
+  const startedAt = Date.now();
+  const contentType = pluginContentType(body.contentType);
+  const audioBytes = pluginAudioBase64(body.audioBase64);
+  const language = normalizeDeepgramLanguage(
+    optionalString(body.language) || "ko",
+  );
+  const transcription = await transcribeAudioBytesCached({
+    apiKey,
+    audioBytes,
+    language,
+    model: process.env.DEEPGRAM_MODEL || "nova-3",
+    contentType,
+  });
+  const retentionDays = pluginAudioRetentionDays(auth, body.retentionDays);
+  const shouldStoreAudio = body.storeAudio !== false;
+  let audioId: string | null = null;
+  let audioUrl: string | null = null;
+  let audioExpiresAt: admin.firestore.Timestamp | null = null;
+  if (shouldStoreAudio) {
+    const stored = await storePluginAudio({
+      auth,
+      audioBytes,
+      contentType,
+      transcript: transcription.transcript,
+      retentionDays,
+      request,
+      externalUserId: optionalString(body.externalUserId),
+      conversationId: optionalString(body.conversationId),
+      externalMessageId: optionalString(body.messageId),
+    });
+    audioId = stored.audioId;
+    audioUrl = stored.audioUrl;
+    audioExpiresAt = stored.expiresAt;
+  }
+  await recordPluginUsage(auth.partnerId, {
+    transcriptionCount: 1,
+    messageCardCount: 0,
+    calendarIntentCount: 0,
+    audioBytes: audioBytes.length,
+    sttMs: Date.now() - startedAt,
+  });
+  response.status(200).json({
+    transcript: transcription.transcript,
+    sttStatus: transcription.transcript.trim() ? "completed" : "failed",
+    language,
+    model: transcription.model,
+    cacheHit: transcription.cacheHit,
+    audioHash: transcription.audioHash,
+    audioId,
+    audioUrl,
+    audioRetentionDays: shouldStoreAudio ? retentionDays : null,
+    audioExpiresAt: audioExpiresAt ? audioExpiresAt.toDate().toISOString() : null,
+  });
+}
+
+async function handlePluginMessageCardRequest(
+  request: PluginHttpRequest,
+  response: PluginHttpResponse,
+) {
+  const auth = await authenticatePluginRequest(request);
+  assertPluginFeature(auth, "messageCards");
+  const body = pluginJsonBody(request.body);
+  const card = renderPluginMessageCard(pluginMessageCardInput(body));
+  await recordPluginUsage(auth.partnerId, {
+    transcriptionCount: 0,
+    messageCardCount: 1,
+    calendarIntentCount: 0,
+    audioBytes: 0,
+    sttMs: 0,
+  });
+  response.status(200).json(card);
+}
+
+async function handlePluginCalendarIntentRequest(
+  request: PluginHttpRequest,
+  response: PluginHttpResponse,
+) {
+  const auth = await authenticatePluginRequest(request);
+  assertPluginFeature(auth, "calendarIntents");
+  const body = pluginJsonBody(request.body);
+  let transcript = optionalString(body.transcript);
+  const apiKey = normalizeSecretValue(
+    process.env.DEEPGRAM_API_KEY || deepgramApiKey.value(),
+  );
+  let transcriptionMeta: Record<string, unknown> | null = null;
+  if (!transcript && typeof body.audioBase64 === "string") {
+    if (!apiKey) {
+      throw new PluginApiError(
+        503,
+        "stt_unavailable",
+        "DEEPGRAM_API_KEY is not configured.",
+      );
+    }
+    const audioBytes = pluginAudioBase64(body.audioBase64);
+    const transcription = await transcribeAudioBytesCached({
+      apiKey,
+      audioBytes,
+      language: normalizeDeepgramLanguage(optionalString(body.language) || "ko"),
+      model: process.env.DEEPGRAM_MODEL || "nova-3",
+      contentType: pluginContentType(body.contentType),
+    });
+    transcript = transcription.transcript;
+    transcriptionMeta = {
+      model: transcription.model,
+      cacheHit: transcription.cacheHit,
+      audioHash: transcription.audioHash,
+    };
+  }
+  if (!transcript) {
+    throw new PluginApiError(
+      400,
+      "transcript_required",
+      "transcript or audioBase64 is required.",
+    );
+  }
+  const parsed = parseCalendarCommand(transcript, {
+    timezone: optionalString(body.timezone) || "Asia/Seoul",
+  });
+  await recordPluginUsage(auth.partnerId, {
+    transcriptionCount: transcriptionMeta ? 1 : 0,
+    messageCardCount: 0,
+    calendarIntentCount: 1,
+    audioBytes: 0,
+    sttMs: 0,
+  });
+  response.status(200).json({
+    transcript,
+    parsedTitle: parsed.title,
+    startAt: parsed.startAt ? parsed.startAt.toISOString() : null,
+    endAt: parsed.endAt ? parsed.endAt.toISOString() : null,
+    timezone: parsed.timezone,
+    missingFields: parsed.missingFields,
+    transcription: transcriptionMeta,
+  });
+}
+
+async function handlePluginAudioRequest(
+  request: PluginHttpRequest,
+  response: PluginHttpResponse,
+  route: string,
+) {
+  const auth = await authenticatePluginRequest(request);
+  assertPluginFeature(auth, "audioPlayback");
+  const audioId = decodeURIComponent(route.replace("/v1/audio/", "")).trim();
+  if (!audioId || audioId.includes("/")) {
+    throw new PluginApiError(400, "invalid_audio_id", "audioId is invalid.");
+  }
+  const snapshot = await db.collection("pluginAudio").doc(audioId).get();
+  const audio = snapshot.data();
+  if (!snapshot.exists || !audio || audio.partnerId !== auth.partnerId) {
+    throw new PluginApiError(404, "audio_not_found", "Audio was not found.");
+  }
+  const expiresAt = audio.expiresAt;
+  if (
+    expiresAt instanceof admin.firestore.Timestamp &&
+    expiresAt.toMillis() <= Date.now()
+  ) {
+    throw new PluginApiError(410, "audio_expired", "Audio has expired.");
+  }
+  const storagePath = optionalString(audio.storagePath);
+  if (!storagePath) {
+    throw new PluginApiError(404, "audio_not_found", "Audio was not found.");
+  }
+  const [url] = await bucket.file(storagePath).getSignedUrl({
+    action: "read",
+    expires: Date.now() + PLUGIN_SIGNED_URL_TTL_MINUTES * 60 * 1000,
+  });
+  response.redirect(302, url);
+}
 
 export const createDeepgramStreamingToken = onCall(
   VOICE_STT_CALL_OPTIONS,
@@ -5653,6 +5946,264 @@ function requireUid(uid: string | undefined) {
     throw new HttpsError("unauthenticated", "Authentication required.");
   }
   return uid;
+}
+
+function pluginRoutePath(url: string) {
+  const pathname = new URL(url, "https://verbal.local").pathname;
+  const marker = "/v1/";
+  const markerIndex = pathname.indexOf(marker);
+  const route = markerIndex >= 0 ? pathname.slice(markerIndex) : pathname;
+  return route.replace(/\/+$/, "") || "/";
+}
+
+function pluginJsonBody(value: unknown): Record<string, unknown> {
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return pluginJsonBody(parsed);
+    } catch {
+      throw new PluginApiError(400, "invalid_json", "Request body is invalid.");
+    }
+  }
+  if (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    !(value instanceof Buffer)
+  ) {
+    return value as Record<string, unknown>;
+  }
+  throw new PluginApiError(400, "invalid_json", "Request body is required.");
+}
+
+function pluginAudioBase64(value: unknown): Buffer {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new PluginApiError(
+      400,
+      "audio_required",
+      "audioBase64 is required.",
+    );
+  }
+  const cleaned = value
+    .replace(/^data:audio\/[a-z0-9.+-]+;base64,/i, "")
+    .replace(/\s+/g, "");
+  let audioBytes: Buffer;
+  try {
+    audioBytes = Buffer.from(cleaned, "base64");
+  } catch {
+    throw new PluginApiError(400, "invalid_audio", "audioBase64 is invalid.");
+  }
+  if (!audioBytes.length || audioBytes.length > PLUGIN_MAX_AUDIO_BYTES) {
+    throw new PluginApiError(
+      400,
+      "invalid_audio_size",
+      "audioBase64 size is outside the allowed range.",
+    );
+  }
+  return audioBytes;
+}
+
+async function authenticatePluginRequest(
+  request: PluginHttpRequest,
+): Promise<PluginAuthContext> {
+  const partnerId = pluginHeader(request, "x-verbal-partner-id");
+  const keyId = pluginHeader(request, "x-verbal-key-id");
+  const apiKey = pluginHeader(request, "x-verbal-api-key");
+  if (!partnerId || !keyId || !apiKey) {
+    throw new PluginApiError(
+      401,
+      "missing_api_key",
+      "Plugin partner credentials are required.",
+    );
+  }
+  const partnerRef = db.collection("pluginPartners").doc(partnerId);
+  const [partnerSnapshot, keySnapshot] = await Promise.all([
+    partnerRef.get(),
+    partnerRef.collection("apiKeys").doc(keyId).get(),
+  ]);
+  const partner = partnerSnapshot.data() as PluginPartnerData | undefined;
+  const key = keySnapshot.data();
+  if (!partnerSnapshot.exists || !partner || partner.status !== "active") {
+    throw new PluginApiError(
+      403,
+      "partner_disabled",
+      "Plugin partner is not active.",
+    );
+  }
+  if (
+    !keySnapshot.exists ||
+    key?.status !== "active" ||
+    key?.keyHash !== pluginApiKeyHash(apiKey)
+  ) {
+    throw new PluginApiError(401, "invalid_api_key", "API key is invalid.");
+  }
+  await keySnapshot.ref.set(
+    {
+      lastUsedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true },
+  );
+  return { partnerId, keyId, partner };
+}
+
+function assertPluginFeature(auth: PluginAuthContext, feature: string) {
+  const features = Array.isArray(auth.partner.enabledFeatures)
+    ? auth.partner.enabledFeatures
+    : [];
+  if (features.length && !features.includes(feature)) {
+    throw new PluginApiError(
+      403,
+      "feature_disabled",
+      `Plugin feature ${feature} is not enabled for this partner.`,
+    );
+  }
+}
+
+function pluginHeader(request: PluginHttpRequest, name: string) {
+  return optionalString(request.header(name));
+}
+
+function pluginApiKeyHash(apiKey: string) {
+  return crypto.createHash("sha256").update(apiKey).digest("hex");
+}
+
+function pluginAudioRetentionDays(
+  auth: PluginAuthContext,
+  requestedDays: unknown,
+) {
+  return boundedInt(
+    requestedDays,
+    auth.partner.defaultAudioRetentionDays ||
+      PLUGIN_DEFAULT_AUDIO_RETENTION_DAYS,
+    1,
+    30,
+  );
+}
+
+async function storePluginAudio(options: {
+  auth: PluginAuthContext;
+  audioBytes: Buffer;
+  contentType: string;
+  transcript: string;
+  retentionDays: number;
+  request: PluginHttpRequest;
+  externalUserId: string;
+  conversationId: string;
+  externalMessageId: string;
+}) {
+  const audioRef = db.collection("pluginAudio").doc();
+  const audioId = audioRef.id;
+  const storagePath = `plugin_audio/${options.auth.partnerId}/${audioId}${pluginAudioExtension(
+    options.contentType,
+  )}`;
+  const expiresAt = retentionExpiryTimestamp(options.retentionDays);
+  await bucket.file(storagePath).save(options.audioBytes, {
+    resumable: false,
+    metadata: {
+      contentType: options.contentType,
+      metadata: {
+        partnerId: options.auth.partnerId,
+        audioId,
+      },
+    },
+  });
+  await audioRef.set({
+    partnerId: options.auth.partnerId,
+    keyId: options.auth.keyId,
+    storagePath,
+    contentType: options.contentType,
+    transcript: options.transcript,
+    externalUserId: options.externalUserId || null,
+    conversationId: options.conversationId || null,
+    externalMessageId: options.externalMessageId || null,
+    audioBytes: options.audioBytes.length,
+    expiresAt,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  return {
+    audioId,
+    audioUrl: pluginAudioUrl(options.request, audioId),
+    expiresAt,
+  };
+}
+
+function pluginAudioUrl(request: PluginHttpRequest, audioId: string) {
+  const host =
+    pluginHeader(request, "x-forwarded-host") ||
+    pluginHeader(request, "host") ||
+    "";
+  const protocol = pluginHeader(request, "x-forwarded-proto") || "https";
+  const routeIndex = request.url.indexOf("/v1/");
+  const prefix = routeIndex >= 0 ? request.url.slice(0, routeIndex) : "";
+  return `${protocol}://${host}${prefix}/v1/audio/${encodeURIComponent(
+    audioId,
+  )}`;
+}
+
+async function recordPluginUsage(
+  partnerId: string,
+  usage: {
+    transcriptionCount: number;
+    messageCardCount: number;
+    calendarIntentCount: number;
+    audioBytes: number;
+    sttMs: number;
+  },
+) {
+  const date = kstDateKey();
+  await db
+    .collection("pluginUsageDaily")
+    .doc(`${partnerId}_${date}`)
+    .set(
+      {
+        partnerId,
+        date,
+        transcriptionCount: FieldValue.increment(usage.transcriptionCount),
+        messageCardCount: FieldValue.increment(usage.messageCardCount),
+        calendarIntentCount: FieldValue.increment(usage.calendarIntentCount),
+        audioBytes: FieldValue.increment(usage.audioBytes),
+        sttMs: FieldValue.increment(usage.sttMs),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+}
+
+function sendPluginError(response: PluginHttpResponse, error: unknown) {
+  if (error instanceof PluginApiError) {
+    response.status(error.status).json({
+      error: {
+        code: error.code,
+        message: error.message,
+      },
+    });
+    return;
+  }
+  if (error instanceof HttpsError) {
+    response.status(400).json({
+      error: {
+        code: error.code,
+        message: error.message,
+      },
+    });
+    return;
+  }
+  if (error instanceof PluginMessageCardInputError) {
+    response.status(400).json({
+      error: {
+        code: "invalid_message_card",
+        message: error.message,
+      },
+    });
+    return;
+  }
+  logger.error("pluginCoreApi failed", { error: errorDetails(error) });
+  response.status(500).json({
+    error: {
+      code: "internal",
+      message: "Plugin API request failed.",
+    },
+  });
 }
 
 function requiredString(value: unknown, field: string) {

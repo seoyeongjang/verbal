@@ -7,6 +7,8 @@ Voice-first mobile messenger MVP for Korean users. The app keeps the familiar me
 - `apps/mobile`: Flutter iOS/Android app.
 - `functions`: Firebase Cloud Functions for room creation, message sending, Deepgram STT, push notifications, deletion, and reports.
 - `firebase`: Firestore rules, Storage rules, and indexes.
+- `services/plugin-platform`: Verbal Web Composer, Slack connector, and partner admin bootstrap console.
+- `packages/verbal-plugin-sdk`: JavaScript SDK for B2B partner integrations.
 - `docs`: Product, data model, and operations notes.
 
 ## Documentation
@@ -29,6 +31,7 @@ Voice-first mobile messenger MVP for Korean users. The app keeps the familiar me
 - Device-free validation: `docs/DEVICE_FREE_VALIDATION.md` / Korean: `docs/ko/DEVICE_FREE_VALIDATION.md`
 - Analytics event taxonomy: `docs/ANALYTICS_EVENT_TAXONOMY.md` / Korean: `docs/ko/ANALYTICS_EVENT_TAXONOMY.md`
 - Load/cost simulation: `docs/LOAD_COST_SIMULATION.md` / Korean: `docs/ko/LOAD_COST_SIMULATION.md`
+- Plugin platform: `docs/PLUGIN_PLATFORM.md` / Korean: `docs/ko/PLUGIN_PLATFORM.md`
 - Support macros: `docs/SUPPORT_MACROS.md` / Korean: `docs/ko/SUPPORT_MACROS.md`
 - User action guide: `docs/USER_ACTION_GUIDE.md` / Korean: `docs/ko/USER_ACTION_GUIDE.md`
 - Local testing: `docs/LOCAL_TESTING.md` / Korean: `docs/ko/LOCAL_TESTING.md`
@@ -108,6 +111,12 @@ npm run build
 npm audit
 npm run emulators:check
 npm run rules:test
+
+cd ..\services\plugin-platform
+npm test
+
+cd ..\..\packages\verbal-plugin-sdk
+npm test
 
 cd ..
 .\scripts\verify-production-backend.ps1

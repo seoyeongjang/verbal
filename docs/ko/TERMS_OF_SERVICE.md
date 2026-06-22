@@ -2,6 +2,8 @@
 
 원문: `docs/TERMS_OF_SERVICE.md`
 
+공개 URL: `https://verbal.chat/terms`
+
 ## 허용 사용
 
 사용자는 Verbal을 스팸, 괴롭힘, 불법 콘텐츠, 사칭, 악성 코드, 서비스
@@ -30,4 +32,4 @@ transcript를 직접 입력해 복구할 수 있습니다.
 
 ## 문의
 
-공개 런칭 전 production 법무/지원 연락처를 확정해야 합니다.
+약관 문의는 `support@verbal.chat`으로 보낼 수 있습니다.

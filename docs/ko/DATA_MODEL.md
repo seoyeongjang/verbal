@@ -9,6 +9,10 @@
 - `phoneHash`: 전화번호 검색용 예약 필드.
 - `photoUrl`: 선택 프로필 이미지.
 - `defaultSendMode`: `confirm` 또는 `instant`.
+- `termsVersion`: 현재 계정이 동의한 이용약관 버전.
+- `privacyVersion`: 동의한 개인정보 처리방침 버전.
+- `communityPolicyVersion`: 동의한 커뮤니티/UGC 운영정책 버전.
+- `policyAcceptedAt`: 회원가입 필수 정책 동의가 완료된 서버 기준 시각.
 - `holidayCountryCode`: 캘린더 공휴일 표시 국가. `none`, `KR`, `US`,
   `JP`, `CN` 중 하나입니다.
 - `deletedAt`: 계정 삭제 후 기록되는 시각.
@@ -169,3 +173,54 @@ delete도 Functions를 통해서만 처리합니다.
 - 클라이언트는 방 참여자일 때만 읽을 수 있고, 직접 create/update/delete는 금지됩니다. 제안 생성, 투표, 확정, 내 일정 추가, 취소는 모두 Cloud Functions를 통해서만 수행합니다.
 
 확정된 일정 제안은 `users/{uid}/calendarEvents/{eventId}`에 `source: chatProposal`로 저장됩니다. 이때 `roomId`, `proposalId`, `messageId`, `candidateId`를 함께 저장해 채팅방 카드와 개인 앱 내부 캘린더 일정을 연결합니다.
+## B2B Plugin Platform
+
+`pluginPartners/{partnerId}`
+
+- `name`: B2B 파트너 표시 이름.
+- `status`: `active`, `paused`, `disabled`.
+- `enabledFeatures`: `voiceTranscription`, `messageCards`,
+  `calendarIntents`, `audioPlayback` 같은 선택적 기능 allowlist. 비어 있거나
+  없으면 v1 plugin 기능 전체를 허용합니다.
+- `defaultAudioRetentionDays`: plugin audio 기본 보존기간, 1-30일.
+- `allowedOrigins`, `connectorSettings`: 향후 web composer와 platform
+  connector용 예약 필드.
+- `createdAt`, `updatedAt`.
+- client read/write는 차단됩니다. Cloud Functions가 `pluginCoreApi` 인증과
+  정책 확인을 위해 읽습니다.
+
+`pluginPartners/{partnerId}/apiKeys/{keyId}`
+
+- `keyHash`: 원문 API key의 SHA-256 hash.
+- `status`: `active`, `paused`, `disabled`.
+- `createdAt`, `lastUsedAt`, `rotatedAt`.
+- 원문 API key는 저장하지 않습니다.
+
+`pluginAudio/{audioId}`
+
+- `partnerId`, `keyId`.
+- `storagePath`: `plugin_audio/{partnerId}/...` 하위 Storage 경로.
+- `contentType`, `transcript`, `audioBytes`.
+- 선택적 파트너 식별자: `externalUserId`, `conversationId`,
+  `externalMessageId`.
+- `expiresAt`, `createdAt`.
+- client read/write는 차단됩니다. `GET /v1/audio/{audioId}`가 파트너를 검증한
+  뒤 짧은 유효기간의 signed URL을 반환합니다.
+
+`pluginUsageDaily/{partnerId}_{yyyy-mm-dd}`
+
+- `partnerId`, `date`.
+- `transcriptionCount`, `messageCardCount`, `calendarIntentCount`.
+- `audioBytes`, `sttMs`.
+- `updatedAt`.
+
+Storage:
+
+- `plugin_audio/{partnerId}/{audioId}.m4a`: `pluginCoreApi`가 생성한 단기
+  보존 B2B plugin audio. client read/write는 차단되며 재생은 signed URL만
+  사용합니다.
+
+B2B plugin platform은 소비자 채팅 데이터와 분리됩니다. `pluginCoreApi`는
+파트너 API key header로 인증한 뒤 음성 전사, 플랫폼별 메시지 카드 렌더링,
+캘린더 intent 파싱, 파트너 소유 audio link 제공을 처리합니다. plugin 컬렉션은
+admin-only이며 모바일 클라이언트에서 읽을 수 없습니다.

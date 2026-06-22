@@ -17,6 +17,7 @@ import '../../services/location_picker.dart';
 import '../../services/messenger_backend.dart';
 import '../../services/pcm_audio_processing.dart';
 import '../../services/pcm_wav_writer.dart';
+import '../../services/telemetry_service.dart';
 import '../shared/profile_avatar.dart';
 import 'room_info_screen.dart';
 
@@ -250,7 +251,6 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
-  late SendMode _sendMode;
   final _searchController = TextEditingController();
   final _optimisticMessages = <String, ChatMessage>{};
   final _voiceTranscriptRecoveryQueued = <String>{};
@@ -262,7 +262,6 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    _sendMode = widget.user.defaultSendMode;
   }
 
   @override
@@ -341,8 +340,6 @@ class _ChatScreenState extends State<ChatScreen> {
                         RoomInfoScreen(room: widget.room, user: widget.user),
                   ),
                 );
-              } else if (value is SendMode) {
-                setState(() => _sendMode = value);
               }
             },
             itemBuilder: (context) => const [
@@ -360,23 +357,6 @@ class _ChatScreenState extends State<ChatScreen> {
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.info_outline_rounded),
                   title: Text('\uB300\uD654 \uC815\uBCF4'),
-                ),
-              ),
-              PopupMenuDivider(),
-              PopupMenuItem(
-                value: SendMode.confirm,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.rate_review_outlined),
-                  title: Text('\uD655\uC778 \uD6C4 \uC804\uC1A1'),
-                ),
-              ),
-              PopupMenuItem(
-                value: SendMode.instant,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.bolt_outlined),
-                  title: Text('\uC989\uC2DC \uC804\uC1A1'),
                 ),
               ),
             ],
@@ -506,7 +486,7 @@ class _ChatScreenState extends State<ChatScreen> {
           MessageComposer(
             roomId: widget.room.id,
             currentUserId: widget.user.uid,
-            sendMode: _sendMode,
+            sendMode: SendMode.instant,
             replyTo: _replyTo,
             onCancelReply: () => setState(() => _replyTo = null),
             onOptimisticVoiceMessage: _addOptimisticMessage,
@@ -3760,6 +3740,12 @@ class _MessageComposerState extends State<MessageComposer> {
     if (text.isEmpty) {
       return;
     }
+    if (_shouldWarnAboutLink(text)) {
+      final confirmed = await _confirmLinkSend(text);
+      if (confirmed != true || !mounted) {
+        return;
+      }
+    }
     final backend = BackendScope.of(context);
     final replyToMessageId = widget.replyTo?.id;
     _textController.clear();
@@ -3780,6 +3766,84 @@ class _MessageComposerState extends State<MessageComposer> {
             }
             _showError(error.toString());
           }),
+    );
+  }
+
+  bool _shouldWarnAboutLink(String value) {
+    final lower = value.toLowerCase();
+    return RegExp(
+          r'(https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,})',
+        ).hasMatch(lower) ||
+        lower.contains('bit.ly') ||
+        lower.contains('tinyurl') ||
+        lower.contains('t.me/') ||
+        lower.contains('open.kakao');
+  }
+
+  Future<bool?> _confirmLinkSend(String text) {
+    unawaited(AppTelemetry.logEvent('suspicious_link_warning_shown'));
+    final preview = text.length > 120 ? '${text.substring(0, 120)}...' : text;
+    return showModalBottomSheet<bool>(
+      context: context,
+      backgroundColor: Colors.white,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(22, 16, 22, 22),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  '링크를 보내시겠어요?',
+                  style: TextStyle(
+                    color: _kInk,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  '피싱이나 사칭 링크일 수 있으니 상대방에게 보낼 주소를 한 번 더 확인해 주세요.',
+                  style: TextStyle(
+                    color: _kMuted,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    height: 1.35,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3F5F4),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Text(
+                    preview,
+                    maxLines: 4,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: _kInk,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  icon: const Icon(Icons.send_rounded),
+                  label: const Text('보내기'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('취소'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

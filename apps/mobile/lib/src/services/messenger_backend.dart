@@ -23,6 +23,12 @@ abstract class MessengerBackend {
     required String handle,
   });
 
+  Future<AppUser> savePolicyConsent({
+    required String termsVersion,
+    required String privacyVersion,
+    required String communityPolicyVersion,
+  });
+
   Future<void> updateDefaultSendMode(SendMode sendMode);
 
   Future<void> updateCalendarNotificationSettings({

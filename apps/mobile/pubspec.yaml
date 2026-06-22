@@ -48,6 +48,8 @@ dependencies:
   intl: ^0.20.2
   web: ^1.1.1
   qr_flutter: ^4.1.0
+  firebase_analytics: ^12.4.2
+  firebase_crashlytics: ^5.2.3
 
 dev_dependencies:
   flutter_test:

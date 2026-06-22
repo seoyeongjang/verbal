@@ -7,13 +7,13 @@ enum SendMode {
   static SendMode fromWire(String? value) {
     return values.firstWhere(
       (mode) => mode.name == value,
-      orElse: () => SendMode.confirm,
+      orElse: () => SendMode.instant,
     );
   }
 
   String get label => switch (this) {
-    SendMode.confirm => '확인 후 전송',
-    SendMode.instant => '즉시 전송',
+    SendMode.confirm => '자동 전송',
+    SendMode.instant => '자동 전송',
   };
 }
 
@@ -144,6 +144,10 @@ class AppUser {
     this.holidayCountryCode = 'KR',
     this.photoUrl,
     this.phoneHash,
+    this.termsVersion,
+    this.privacyVersion,
+    this.communityPolicyVersion,
+    this.policyAcceptedAt,
   });
 
   final String uid;
@@ -158,6 +162,10 @@ class AppUser {
   final String holidayCountryCode;
   final String? photoUrl;
   final String? phoneHash;
+  final String? termsVersion;
+  final String? privacyVersion;
+  final String? communityPolicyVersion;
+  final DateTime? policyAcceptedAt;
 
   bool get hasProfile =>
       displayName.trim().isNotEmpty && handle.trim().isNotEmpty;
@@ -174,6 +182,10 @@ class AppUser {
     String? holidayCountryCode,
     String? photoUrl,
     String? phoneHash,
+    String? termsVersion,
+    String? privacyVersion,
+    String? communityPolicyVersion,
+    DateTime? policyAcceptedAt,
   }) {
     return AppUser(
       uid: uid,
@@ -192,6 +204,11 @@ class AppUser {
       holidayCountryCode: holidayCountryCode ?? this.holidayCountryCode,
       photoUrl: photoUrl ?? this.photoUrl,
       phoneHash: phoneHash ?? this.phoneHash,
+      termsVersion: termsVersion ?? this.termsVersion,
+      privacyVersion: privacyVersion ?? this.privacyVersion,
+      communityPolicyVersion:
+          communityPolicyVersion ?? this.communityPolicyVersion,
+      policyAcceptedAt: policyAcceptedAt ?? this.policyAcceptedAt,
     );
   }
 
@@ -217,6 +234,15 @@ class AppUser {
           : 'KR',
       photoUrl: data['photoUrl'] as String?,
       phoneHash: data['phoneHash'] as String?,
+      termsVersion: data['termsVersion'] as String?,
+      privacyVersion: data['privacyVersion'] as String?,
+      communityPolicyVersion: data['communityPolicyVersion'] as String?,
+      policyAcceptedAt: switch (data['policyAcceptedAt']) {
+        final Timestamp value => value.toDate(),
+        final DateTime value => value,
+        final String value => DateTime.tryParse(value),
+        _ => null,
+      },
     );
   }
 }

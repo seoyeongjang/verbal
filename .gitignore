@@ -22,6 +22,7 @@ services/*/*.log
 services/*/services/
 
 # Firebase logs
+.firebase/
 firebase-debug.log
 firebase-debug.*.log
 firestore-debug.log

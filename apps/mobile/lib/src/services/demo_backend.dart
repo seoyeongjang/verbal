@@ -45,7 +45,7 @@ class DemoMessengerBackend implements MessengerBackend {
         audioPath: null,
         durationMs: 3200,
         sttStatus: SttStatus.completed,
-        sendMode: SendMode.confirm,
+        sendMode: SendMode.instant,
         createdAt: DateTime.now().subtract(const Duration(minutes: 8)),
       ),
       ChatMessage(
@@ -57,7 +57,7 @@ class DemoMessengerBackend implements MessengerBackend {
         audioPath: null,
         durationMs: 0,
         sttStatus: SttStatus.none,
-        sendMode: SendMode.confirm,
+        sendMode: SendMode.instant,
         createdAt: DateTime.now().subtract(const Duration(minutes: 7)),
       ),
     ];
@@ -194,7 +194,7 @@ class DemoMessengerBackend implements MessengerBackend {
         audioPath: null,
         durationMs: 0,
         sttStatus: SttStatus.none,
-        sendMode: SendMode.confirm,
+        sendMode: SendMode.instant,
         createdAt: createdAt,
       ),
     ];
@@ -231,7 +231,7 @@ class DemoMessengerBackend implements MessengerBackend {
       uid: _demoUid,
       displayName: 'Demo',
       handle: 'demo',
-      defaultSendMode: SendMode.confirm,
+      defaultSendMode: SendMode.instant,
     );
     _authController.add(_currentUser);
     _emitRooms();
@@ -262,6 +262,23 @@ class DemoMessengerBackend implements MessengerBackend {
     _currentUser = current.copyWith(
       displayName: displayName.trim(),
       handle: normalizeHandle(handle),
+    );
+    _authController.add(_currentUser);
+    return _currentUser!;
+  }
+
+  @override
+  Future<AppUser> savePolicyConsent({
+    required String termsVersion,
+    required String privacyVersion,
+    required String communityPolicyVersion,
+  }) async {
+    final current = _requireUser();
+    _currentUser = current.copyWith(
+      termsVersion: termsVersion,
+      privacyVersion: privacyVersion,
+      communityPolicyVersion: communityPolicyVersion,
+      policyAcceptedAt: DateTime.now(),
     );
     _authController.add(_currentUser);
     return _currentUser!;
@@ -311,6 +328,10 @@ class DemoMessengerBackend implements MessengerBackend {
         'displayName': user.displayName,
         'handle': user.handle,
         'defaultSendMode': user.defaultSendMode.name,
+        'termsVersion': user.termsVersion,
+        'privacyVersion': user.privacyVersion,
+        'communityPolicyVersion': user.communityPolicyVersion,
+        'policyAcceptedAt': user.policyAcceptedAt?.toIso8601String(),
       },
       'rooms': [
         for (final room in _rooms.where(
@@ -434,43 +455,43 @@ class DemoMessengerBackend implements MessengerBackend {
         uid: 'friend-1',
         displayName: '김민지',
         handle: 'minji_kim',
-        defaultSendMode: SendMode.confirm,
+        defaultSendMode: SendMode.instant,
       ),
       AppUser(
         uid: 'friend-2',
         displayName: '이지훈',
         handle: 'jihoon_lee',
-        defaultSendMode: SendMode.confirm,
+        defaultSendMode: SendMode.instant,
       ),
       AppUser(
         uid: 'friend-3',
         displayName: '정유나',
         handle: 'yuna_jung',
-        defaultSendMode: SendMode.confirm,
+        defaultSendMode: SendMode.instant,
       ),
       AppUser(
         uid: 'friend-4',
         displayName: '최아린',
         handle: 'arin_choi',
-        defaultSendMode: SendMode.confirm,
+        defaultSendMode: SendMode.instant,
       ),
       AppUser(
         uid: 'friend-5',
         displayName: '박서준',
         handle: 'seojun_park',
-        defaultSendMode: SendMode.confirm,
+        defaultSendMode: SendMode.instant,
       ),
       AppUser(
         uid: 'friend-6',
         displayName: '한다은',
         handle: 'daeun_han',
-        defaultSendMode: SendMode.confirm,
+        defaultSendMode: SendMode.instant,
       ),
       AppUser(
         uid: 'friend-7',
         displayName: '한지수',
         handle: 'jisoo_han',
-        defaultSendMode: SendMode.confirm,
+        defaultSendMode: SendMode.instant,
       ),
     ];
     if (normalizedQuery.isEmpty) {
@@ -497,7 +518,7 @@ class DemoMessengerBackend implements MessengerBackend {
         uid: normalizedHandle,
         displayName: normalizedHandle,
         handle: normalizedHandle,
-        defaultSendMode: SendMode.confirm,
+        defaultSendMode: SendMode.instant,
       ),
     );
     if (friend.uid == _demoUid || friend.handle == _currentUser?.handle) {
@@ -734,7 +755,7 @@ class DemoMessengerBackend implements MessengerBackend {
         uid: memberUid,
         displayName: request.displayName ?? memberUid,
         handle: request.handle ?? memberUid,
-        defaultSendMode: SendMode.confirm,
+        defaultSendMode: SendMode.instant,
       ),
     );
     _joinRequests[roomId]?.removeWhere((item) => item.uid == memberUid);

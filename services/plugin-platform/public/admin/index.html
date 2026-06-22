@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Verbal Partner Admin</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <div class="shell">
+        <section class="hero">
+          <h1>Verbal Partner Admin</h1>
+          <p>Create partner bootstrap documents, hash API keys, and generate smoke-test requests.</p>
+        </section>
+
+        <section class="section">
+          <h2>Partner bootstrap</h2>
+          <div class="grid">
+            <label>
+              Partner ID
+              <input id="partnerId" value="demoPartner" />
+            </label>
+            <label>
+              Partner name
+              <input id="partnerName" value="Demo Partner" />
+            </label>
+            <label>
+              Key ID
+              <input id="keyId" value="default" />
+            </label>
+            <label>
+              Raw API key
+              <input id="rawApiKey" value="verbal_live_change_me" />
+            </label>
+            <label>
+              Default retention days
+              <input id="retentionDays" type="number" min="1" max="30" value="1" />
+            </label>
+            <label>
+              Core API base URL
+              <input id="coreApiBase" placeholder="https://.../pluginCoreApi" />
+            </label>
+          </div>
+          <div class="actions">
+            <button id="generateButton">Generate documents</button>
+            <a class="button secondary" href="/composer/">Open composer</a>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>Firestore documents</h2>
+          <pre id="docOutput">{}</pre>
+          <div class="actions">
+            <button id="copyDocsButton" class="secondary" disabled>Copy documents</button>
+          </div>
+        </section>
+
+        <section class="section">
+          <h2>Smoke request</h2>
+          <pre id="curlOutput">Generate documents first.</pre>
+          <div class="actions">
+            <button id="copyCurlButton" class="secondary" disabled>Copy curl</button>
+          </div>
+        </section>
+      </div>
+    </main>
+    <script src="/admin/app.js"></script>
+  </body>
+</html>

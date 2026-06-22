@@ -9,6 +9,11 @@
 - `phoneHash`: reserved for hashed phone lookup.
 - `photoUrl`: optional profile image.
 - `defaultSendMode`: `confirm` or `instant`.
+- `termsVersion`: accepted terms-of-service version for the current account.
+- `privacyVersion`: accepted privacy-policy version.
+- `communityPolicyVersion`: accepted community/UGC policy version.
+- `policyAcceptedAt`: server timestamp recorded when the required sign-up policy
+  consent was accepted.
 - `holidayCountryCode`: calendar holiday overlay country, one of `none`,
   `KR`, `US`, `JP`, or `CN`.
 - `deletedAt`: set after account deletion.
@@ -158,11 +163,53 @@
 - `transcript`.
 - `hitCount`, `createdAt`, `lastUsedAt`.
 
+`pluginPartners/{partnerId}`
+
+- `name`: B2B partner display name.
+- `status`: `active`, `paused`, or `disabled`.
+- `enabledFeatures`: optional feature allowlist such as `voiceTranscription`,
+  `messageCards`, `calendarIntents`, and `audioPlayback`. Empty or missing means
+  all v1 plugin features are enabled.
+- `defaultAudioRetentionDays`: default plugin audio retention, 1-30 days.
+- `allowedOrigins`, `connectorSettings`: reserved for the web composer and
+  platform connectors.
+- `createdAt`, `updatedAt`.
+- Client reads and writes are blocked. Cloud Functions read this document for
+  `pluginCoreApi` authentication and policy.
+
+`pluginPartners/{partnerId}/apiKeys/{keyId}`
+
+- `keyHash`: SHA-256 hash of the raw API key.
+- `status`: `active`, `paused`, or `disabled`.
+- `createdAt`, `lastUsedAt`, `rotatedAt`.
+- Raw API keys are never stored.
+
+`pluginAudio/{audioId}`
+
+- `partnerId`, `keyId`.
+- `storagePath`: Storage path under `plugin_audio/{partnerId}/...`.
+- `contentType`, `transcript`, `audioBytes`.
+- Optional partner identifiers: `externalUserId`, `conversationId`,
+  `externalMessageId`.
+- `expiresAt`, `createdAt`.
+- Client reads and writes are blocked. `GET /v1/audio/{audioId}` validates the
+  partner and returns a short-lived signed URL.
+
+`pluginUsageDaily/{partnerId}_{yyyy-mm-dd}`
+
+- `partnerId`, `date`.
+- `transcriptionCount`, `messageCardCount`, `calendarIntentCount`.
+- `audioBytes`, `sttMs`.
+- `updatedAt`.
+
 ## Storage
 
 - `voice_drafts/{uid}/{draftId}.m4a`: temporary audio awaiting message STT or
   calendar intent parsing.
 - `voice_messages/{roomId}/{messageId}.m4a`: sent voice message audio.
+- `plugin_audio/{partnerId}/{audioId}.m4a`: short-lived B2B plugin audio
+  created by `pluginCoreApi`. Client read/write is blocked; playback is through
+  signed URLs only.
 
 ## Backend Contract
 
@@ -187,3 +234,8 @@ directly to `calendarEvents` from the client. `createCalendarProposal` creates a
 chat card and proposal document, `voteCalendarProposal` stores each member's
 candidate selections, and `finalizeCalendarProposal` creates internal calendar
 events only for the proposer and members who selected the finalized candidate.
+
+The B2B plugin platform is isolated from consumer chat data. `pluginCoreApi`
+uses partner API key headers to transcribe audio, render platform-specific
+message cards, parse calendar intents, and serve partner-owned audio links.
+Plugin collections are admin-only and are not readable by mobile clients.

@@ -1,0 +1,14 @@
+{
+  "name": "@verbal/plugin-sdk",
+  "version": "0.1.0",
+  "description": "JavaScript SDK for Verbal Plugin Platform Core API.",
+  "main": "index.js",
+  "type": "commonjs",
+  "private": true,
+  "scripts": {
+    "test": "node test/sdk.test.js"
+  },
+  "engines": {
+    "node": ">=22 <25"
+  }
+}

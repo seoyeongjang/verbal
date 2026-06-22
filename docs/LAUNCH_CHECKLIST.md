@@ -2,7 +2,7 @@
 
 Korean translation: `docs/ko/LAUNCH_CHECKLIST.md`
 
-Status date: 2026-06-04
+Status date: 2026-06-19
 
 This checklist tracks the current Verbal MVP against the work still
 needed before a public launch. The app is feature-rich enough for local and
@@ -32,10 +32,15 @@ functions plus launch-preparation gaps.
 - [x] Instagram DM-inspired home layout with notes, tabs, room rows, and camera
   affordances.
 - [x] Green app color system and avatar gradient mood.
-- [x] Messages, channels, and requests tabs.
+- [x] Messages and channels tabs; request messages moved to the user menu.
 - [x] Native ad slot outside private chat content.
 - [x] Swipe row actions for pin, mute, delete/leave, and room management flows.
-- [x] Direct room and group room entry points.
+- [x] Unified chat creation: one selected friend opens 1:1, two or more selected
+  friends open a group.
+- [x] Open chat creation with registered-friend invites and shareable invite
+  links/QR.
+- [x] Home global search v1 across rooms, message text, voice transcripts,
+  attachment metadata, and calendar events.
 
 ### Chat and Voice Messaging
 
@@ -60,6 +65,7 @@ functions plus launch-preparation gaps.
   width for short messages.
 - [x] Sending/progress state for voice and attachment actions.
 - [x] Read-state and mark-read behavior.
+- [x] Suspicious-link warning before sending outbound text links.
 
 ### Attachments and Utility Features
 
@@ -129,12 +135,40 @@ functions plus launch-preparation gaps.
 - [x] Android emulator sign-up smoke test passed with Firebase test phone,
   profile setup, handle reservation, and production-mode home load.
 - [x] Production backend E2E smoke test passed with Firebase Auth test phones:
-  direct room creation, two-way text send, voice upload, Deepgram transcript,
-  automatic voice send, instant backend send, and FCM stale-token cleanup.
+  direct room creation, two-way text send, message edit/delete, reaction,
+  pin/unpin, scheduled send, file attachment, location message, translation,
+  voice upload, Deepgram transcript, automatic voice send, instant backend
+  send, calendar voice event create/edit/delete, chat calendar proposal
+  vote/finalize, open-chat invite link join/leave, report, block, and FCM
+  stale-token cleanup.
 - [x] Google Play store listing text prepared under `artifacts/store/google-play`.
 - [x] Google Play submission pack prepared.
+- [x] Google Play closed testing operation pack prepared with tester CSV,
+  invitation copy, feedback questions, issue template, and evidence commands.
+- [x] Play reviewer access instructions prepared for phone sign-in review.
+- [x] Play App content worksheet prepared for app access, ads, Data Safety,
+  account deletion, target audience, content rating, sensitive permissions, and
+  UGC declarations.
 - [x] Google Play Data Safety draft prepared.
 - [x] Device-free validation plan prepared.
+- [x] Android release artifact/signing verifier prepared.
+- [x] Launch gate report generator prepared.
+- [x] Manual launch evidence template prepared for Play Console and real-device
+  proof.
+- [x] Manual launch evidence verifier prepared to report missing Play Console,
+  real-device E2E, and FCM proof fields.
+- [x] Preinternal release check prepared to run build, store assets, Android
+  release verification, launch readiness, Play Console pack, closed testing
+  pack, evidence template, evidence shape check, launch gate, and launch
+  handoff in one command.
+- [x] Launch handoff pack prepared to consolidate Play Console, closed testing,
+  real-device E2E, FCM, and launch-evidence recording steps into
+  `artifacts/launch-handoff-latest.md`.
+- [x] Launch consistency verifier prepared so the AAB, Play Console pack,
+  launch gate, and handoff must describe the same release candidate.
+- [x] Public release hard gate prepared so production/public exposure fails
+  until strict launch evidence and `readyForPublicUserExposure` pass.
+- [x] Android real-device QA evidence capture script and guide prepared.
 
 ## Partially Implemented / Needs Production Verification
 
@@ -171,7 +205,8 @@ functions plus launch-preparation gaps.
   Eventarc, and Secret Manager.
 - [x] Set `DEEPGRAM_API_KEY` as a Firebase Functions secret.
 - [x] Deploy Cloud Functions.
-- [x] Deploy Firestore rules and indexes again after final review.
+- [x] Deploy Firestore rules and indexes again after final review; latest
+  deployment on 2026-06-18 includes sign-up policy-consent fields.
 - [x] Run Android emulator production-backend sign-up smoke test with Firebase
   test phone, profile setup, handle reservation, and room-list load.
 - [x] Verify Android emulator microphone permission prompt and active recording
@@ -179,22 +214,76 @@ functions plus launch-preparation gaps.
 - [x] Run production backend E2E for Firebase Auth test phones, direct room
   creation, two-way text send, voice upload, Deepgram transcript, automatic
   voice send, instant backend send, and FCM stale-token cleanup.
-- [ ] Run a full production Firebase E2E test: phone auth, profile setup, handle
+- [x] Run a full production Firebase backend E2E test with Firebase test-phone
+  auth: phone auth, profile setup, handle
   reservation, room creation, text send, voice upload, Deepgram transcript,
   automatic voice send, attachment, location, scheduled send, translation,
   invite link/QR, calendar voice event, calendar edit/delete, message edit,
-  message delete, report, block, and leave room.
+  message delete, report, block, and leave room. Latest expanded run passed on
+  2026-06-18 with artifact `artifacts/production-e2e-smoke-20260618150400.json`.
 - [ ] Verify STT latency, failure handling, and Korean transcript quality on real
   devices.
-- [ ] Verify audio retention deletion while preserving transcripts.
-- [ ] Verify FCM push notifications on real Android devices.
+- [x] Prepare Android real-device QA script to capture device info, launch
+  screenshot, UIAutomator dump, logcat, and tester checklist under
+  `artifacts/android-real-device-qa/<run-id>/`.
+- [x] Prepare FCM real-device QA script to capture foreground, background,
+  terminated, and lock-screen delivery evidence under
+  `artifacts/fcm-real-device/<run-id>/`.
+- [x] Verify audio retention deletion while preserving transcripts with emulator
+  and production `retention_probe_*` checks on 2026-06-18.
+- [ ] Verify FCM push notifications on real Android devices and record
+  `artifacts/fcm-real-device-latest.json`.
 - [ ] Configure APNs and verify iOS push if iOS launch is in scope.
-- [x] Rebuild Android release AAB from the latest source after voice auto-send
-  and voice-calendar auto-save changes.
-- [ ] Create Google Play Console app listing and upload to internal testing.
+- [x] Rebuild Android release AAB from the latest source after voice auto-send,
+  voice-calendar auto-save, and sign-up policy-consent changes.
+- [x] Add Android release artifact verification for package identity, Firebase
+  package mapping, AAB freshness/build parity, version metadata, and upload-key
+  readability before Play Console upload.
+- [x] Add a launch gate report that separates Internal testing upload readiness
+  from public user exposure readiness.
+- [x] Add a structured manual evidence file flow so Play Console, Data Safety,
+  real-device E2E, and FCM proof can close launch gates after they are done.
+- [x] Add `npm run verify:launch-evidence` so filled manual evidence can be
+  checked independently before rerunning the launch gate.
+- [x] Add `npm run verify:preinternal` as the one-command local gate before
+  Google Play Internal testing upload.
+- [x] Add `npm run prepare:launch-handoff` so external Play Console and
+  real-device evidence work can continue from one generated file.
+- [x] Add `npm run verify:launch-consistency` to catch stale AAB, Play Console
+  pack, launch gate, or handoff artifacts before upload.
+- [x] Add `npm run status:launch` as a concise dashboard for the current stage,
+  next external evidence step, and remaining public exposure blockers.
+- [x] Add `npm run verify:public-release` as the hard gate before production
+  or general public exposure.
+- [x] Create Google Play Console app listing and upload to internal testing.
+  Current Play Console app is `Verbal` / `com.voicebeta.verbal`; the current
+  `1 (1.0.0)` AAB was uploaded to Internal testing and tester Gmail was added.
+- [ ] Review Google Play Pre-launch report after Internal testing upload and
+  record `playConsole.preLaunchReportReviewed` evidence.
+- [ ] Complete Google Play closed testing / production access readiness, or
+  record why the Play Console account is not subject to that requirement.
 - [ ] Complete Google Play Data Safety form in Play Console.
 - [x] Prepare privacy policy, terms of service, and account/data deletion policy
   drafts.
+- [x] Add required sign-up consent gate for terms, privacy policy, and
+  community/UGC policy, and store accepted policy versions on the user record.
+- [x] Prepare Firebase Hosting static pages for account deletion and data
+  deletion policy.
+- [x] Purchase the public launch domain: `verbal.chat`.
+- [x] Deploy the default Firebase Hosting site and verify the fallback HTTPS
+  account/data deletion URLs.
+- [x] Move `verbal.chat` authoritative DNS to Cloudflare, preserve Firebase
+  Hosting records, and enable Cloudflare Email Routing for
+  `support@verbal.chat` -> `jangseo37@gmail.com`.
+- [x] Verify `https://verbal.chat/account/delete` and
+  `https://verbal.chat/data-deletion` before Play Console submission.
+- [x] Add and run automated launch readiness verification for package identity,
+  release AAB, hosted deletion URLs, store listing files, policy documents,
+  telemetry wiring, policy consent, and validation scripts. Latest run on
+  2026-06-19 KST passed 219 checks with 0 failures.
+- [x] Add launch evidence recorder so Play Console, Data Safety, Pre-launch
+  report, closed testing/production access, real-device E2E, and FCM evidence
+  can be recorded by command instead of direct JSON editing.
 - [x] Configure Firebase/GCP budgets, cost alerts, logging alerts, and Deepgram
   usage monitoring.
 - [x] Complete Firestore/Storage security rule audit with allow/deny test cases.
@@ -220,6 +309,8 @@ functions plus launch-preparation gaps.
 - [x] Complete Korean copy cleanup for the primary messenger buttons, sheets,
   menus, and errors.
 - [x] Add Analytics and Crashlytics event taxonomy document.
+- [x] Wire Firebase Analytics and Crashlytics packages in Firebase runtime mode
+  with core funnel, voice, attachment, report, export, and push-token events.
 - [x] Prepare load and cost simulation model using realistic DAU, voice length,
   STT error, and replay-rate variables.
 - [x] Prepare customer support macros for login, STT failure, lost account,
@@ -231,18 +322,22 @@ These commands have been used during MVP validation and should be run again
 after each release-bound change:
 
 ```powershell
-cd C:\Users\jangs\OneDrive\바탕 화면\vibe_code\voice_messanger\apps\mobile
+cd .\apps\mobile
 C:\Users\jangs\develop\flutter\bin\flutter.bat analyze
 C:\Users\jangs\develop\flutter\bin\flutter.bat test
 
-cd C:\Users\jangs\OneDrive\바탕 화면\vibe_code\voice_messanger\functions
+cd ..\..\functions
 npm run test:calendar-parser
 npm run build
 npm run emulators:check
 npm run rules:test
 npm run smoke:prod-e2e
+npm run verify:preinternal
+npm run verify:launch-consistency
+npm run status:launch
+npm run verify:public-release
 
-cd C:\Users\jangs\OneDrive\바탕 화면\vibe_code\voice_messanger
+cd ..
 .\scripts\build-free-stt-web.ps1
 .\scripts\verify-production-backend.ps1
 ```
@@ -267,9 +362,54 @@ cd C:\Users\jangs\OneDrive\바탕 화면\vibe_code\voice_messanger
 - [ ] Next: real-device spoken QA for voice message STT auto-send and voice
   calendar auto-save.
 - [ ] Next: real-device FCM foreground/background/terminated push verification.
-- [ ] Next: audio retention expiry verification with transcript preservation.
-- [ ] Next: Google Play internal testing listing creation and Data Safety form
-  completion.
+- [x] Audio retention expiry verification with transcript preservation passed in
+  emulator and production probes.
+- [x] Automated launch readiness verification added and passed on 2026-06-19 KST
+  with hosted `verbal.chat` account/data deletion URLs, release AAB, policy
+  docs, store listing files, telemetry, sign-up consent checks, release
+  verification hooks, and 0 failures.
+- [x] Android release verification passed on 2026-06-19 KST:
+  package identity, Firebase package mapping, AAB freshness/build parity,
+  version metadata, and upload key fingerprint all passed.
+- [x] Play Console input pack generator added for app identity, AAB metadata,
+  policy URLs, support contact, store descriptions, Data Safety summary,
+  reviewer access, App content worksheet summary, screenshot checklist/
+  candidates, and remaining manual steps.
+- [x] Play Store asset generator added for 512px app icon, 1024x500 feature
+  graphic, and five 1080x1920 phone screenshots.
+- [x] Expanded production E2E smoke coverage for message edit/delete, reaction,
+  pin/unpin, scheduled send, file attachment, location, translation, calendar
+  proposal vote/finalize, open-chat invite join/leave, report, and block.
+- [x] Production Firebase Storage rules redeployed on 2026-06-18 after fixing
+  attachment uploads to allow authenticated writes under the sender UID path
+  while keeping attachment reads room-member restricted.
+- [x] Android real-device QA helper added:
+  `scripts/run-android-real-device-qa.ps1`.
+- [x] Android real-device precheck helper added:
+  `scripts/run-android-real-device-precheck.ps1`.
+- [x] FCM real-device QA helper added:
+  `scripts/run-fcm-real-device-qa.ps1`.
+- [x] Android release verification helper added:
+  `scripts/verify-android-release-artifact.ps1`.
+- [x] Launch gate report helper added:
+  `functions/scripts/generate-launch-gate-report.js`.
+- [x] Manual launch evidence template helper added:
+  `functions/scripts/prepare-launch-evidence-template.js`.
+- [x] Manual launch evidence recorder added:
+  `functions/scripts/record-launch-evidence.js`.
+- [x] Manual launch evidence verifier added:
+  `functions/scripts/verify-launch-evidence.js`.
+- [x] Preinternal release check helper added:
+  `functions/scripts/run-preinternal-release-check.js`.
+- [x] Launch handoff helper added:
+  `functions/scripts/generate-launch-handoff.js`.
+- [x] Launch consistency verifier added:
+  `functions/scripts/verify-launch-consistency.js`.
+- [x] Launch status dashboard helper added:
+  `functions/scripts/generate-launch-status.js`.
+- [x] Public release hard gate helper added:
+  `functions/scripts/verify-public-release-gate.js`.
+- [ ] Next: Google Play App content and Data Safety form completion.
 
 ## Launch Decision
 

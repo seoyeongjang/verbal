@@ -54,14 +54,14 @@ before broad release.
 | --- | --- | --- |
 | Full real-device E2E coverage | Verbal depends on phone auth, microphone, STT, push, storage, and native permissions. Emulator/browser checks are not enough for launch. | Remaining launch blocker. |
 | FCM foreground/background/terminated verification | A messenger without reliable notifications will feel broken. | Backend path exists; real-device delivery still needs verification. |
-| Audio retention expiry verification | Product policy says audio expires while transcript remains. This must be proven in production data. | Function source exists; production behavior still needs verification. |
-| Terms/privacy/UGC acceptance during sign-up | Google Play UGC policy expects terms/user policy acceptance before UGC upload. | Policies exist; explicit acceptance gate should be verified or added. |
-| Account deletion web endpoint | Google Play requires both in-app deletion and a web resource for deletion requests. | In-app flow exists; external web endpoint must be finalized. |
+| Audio retention expiry verification | Product policy says audio expires while transcript remains. This must be proven in production data. | Emulator and production `retention_probe_*` verification passed on 2026-06-18. |
+| Terms/privacy/UGC acceptance during sign-up | Google Play UGC policy expects terms/user policy acceptance before UGC upload. | Explicit sign-up consent gate is implemented for terms, privacy policy, and community/UGC policy; accepted versions are stored on the user record. |
+| Account deletion web endpoint | Google Play requires both in-app deletion and a web resource for deletion requests. | In-app flow exists and hosted endpoints are live at `https://verbal.chat/account/delete` and `https://verbal.chat/data-deletion`; Play Console entry evidence still needs to be recorded. |
 | Moderation queue and response workflow | Report/block UI is not enough; launch needs an operator path, SLA, appeal/restore path, and audit trail. | Runbook exists; operational tooling/status workflow should be validated. |
 | Safety center completeness | Kakao/Apple/Google patterns require report, block, policy, contact, and user protection flows that are easy to find. | Basic menus exist; report status, appeal, and safety education can be deepened. |
-| Suspicious link / phishing warnings | Korean messenger abuse risk is high, and Kakao highlights phishing prevention. | Recommended P0 safety hardening. |
+| Suspicious link / phishing warnings | Korean messenger abuse risk is high, and Kakao highlights phishing prevention. | v1 outbound text-link warning is implemented; beta abuse tuning remains. |
 | Read-receipt privacy controls | Instagram and Telegram expose read controls; users expect per-user or per-room privacy. | Read-state exists; user controls need product verification. |
-| Global search | Telegram-style search across chats, transcripts, saved messages, files, and calendar is core for a transcript-first messenger. | Room search exists; global search remains recommended. |
+| Global search | Telegram-style search across chats, transcripts, saved messages, files, and calendar is core for a transcript-first messenger. | v1 home search now covers rooms, message text, voice transcripts, attachment metadata, and calendar events; server-side indexing remains a scale item. |
 | Saved Messages v1 | Telegram makes this a core personal storage surface; it also fits Verbal transcripts and calendar notes. | Menu exists; full tagged storage workflow should be completed. |
 
 ### P1 Strong Beta Differentiators
@@ -77,7 +77,7 @@ before broad release.
 | Per-room notification detail | Messenger users expect precise notification control. | Mute duration, mention-only, voice-only, calendar-only. |
 | Message bookmarks / save to Saved Messages | Makes pinned messages less overloaded. | Long-press save, tags, source room backlink. |
 | Calendar-share polish | The chat calendar proposal is a differentiator. | Add candidate comments, reminders per proposal, ICS/export later. |
-| Crashlytics and analytics production instrumentation | Needed to run beta with evidence. | Wire the existing taxonomy into production analytics/crash reporting. |
+| Crashlytics and analytics production instrumentation | Needed to run beta with evidence. | Runtime Firebase Analytics/Crashlytics wiring is added; release dashboard validation remains. |
 
 ### P2 Expansion After Stable Beta
 
@@ -131,20 +131,22 @@ before broad release.
   where legally allowed, and third-party STT data requests if applicable.
 - Verify data export JSON covers account, messages, saved messages, calendar,
   and relevant metadata.
-- Verify audio retention job deletes audio while preserving transcript and audit
-  metadata.
+- Re-run the audio retention probe before each release candidate:
+  `npm run verify:audio-retention` and, for production,
+  `VERIFY_AUDIO_RETENTION_PROD=1 npm run verify:audio-retention:prod`.
 - Confirm Firebase/GCP budgets, logging alerts, Deepgram usage alerts, and
   anomaly alerts are live.
 - Confirm backup, incident response, rollback, and release versioning procedures.
 
 ### Safety And Policy
 
-- Add or verify sign-up acceptance for terms, privacy policy, and user policy.
+- Verify the implemented sign-up acceptance for terms, privacy policy, and user
+  policy during Play internal testing.
 - Confirm in-app report/block flows cover message, room, profile, invite, and
   public/community content if enabled.
 - Build or verify moderation queue, operator notes, appeal handling, and report
   status to user.
-- Add phishing/suspicious-link warning logic before opening broad invite or
+- Verify phishing/suspicious-link warning behavior before opening broad invite or
   community surfaces.
 - Keep open/community rooms behind feature flags until moderation capacity is
   proven.
@@ -154,7 +156,8 @@ before broad release.
 - Create Google Play Console app listing and upload the latest AAB to internal
   testing.
 - Complete Google Play Data Safety, content rating, target audience, ads
-  declaration, permissions declaration, and account deletion web URL.
+  declaration, permissions declaration, and enter the verified account deletion
+  web URL.
 - Finalize privacy policy, terms, data deletion policy, location-based service
   terms if location is offered, support contact, and youth/minor protection
   policy for Korea-oriented launch.
@@ -165,18 +168,20 @@ before broad release.
 
 ## Recommended Next Build Order
 
-1. Finish real-device production QA and close remaining P0 launch blockers.
-2. Add explicit terms/user-policy acceptance if not already enforced.
-3. Add account deletion web endpoint and link it from Play Console and policy
-   documents.
-4. Add global search across rooms, transcripts, saved messages, attachments,
-   and calendar events.
-5. Complete Saved Messages with tags and source-room backlinks.
-6. Add inbox folders/archive/unread/voice filters.
-7. Add read-receipt privacy controls and group participation preview/decline.
-8. Deepen safety center: report status, appeal, phishing warning, report and
+1. Finish Play Console app creation/internal testing upload and real-device
+   production QA, then close the remaining P0 launch blockers.
+2. Record Play Console, Data Safety, real-device E2E, and FCM evidence with
+   `npm run record:launch-evidence -- <command>`, then run
+   `npm run verify:launch-evidence` and `npm run report:launch-gate`.
+3. Validate global search v1 across rooms, transcripts, attachments, and
+   calendar events, then replace client fan-out search with server-side indexing
+   before broad scale.
+4. Complete Saved Messages with tags and source-room backlinks.
+5. Add inbox folders/archive/unread/voice filters.
+6. Add read-receipt privacy controls and group participation preview/decline.
+7. Deepen safety center: report status, appeal, phishing warning, report and
    leave.
-9. Add advanced voice controls: pause/resume, playback speed, transcript
+8. Add advanced voice controls: pause/resume, playback speed, transcript
    collapse, confidence/correction history.
 10. Start closed beta only after notification, deletion, retention, moderation,
     and store-policy gates are verified.

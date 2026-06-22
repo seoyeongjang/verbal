@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
 const admin = require("firebase-admin");
 
@@ -70,6 +71,7 @@ async function main() {
 
   await prepareUser(sender);
   await prepareUser(receiver);
+  await clearActionCooldowns([sender.uid, receiver.uid]);
   const db = admin.firestore();
 
   const friendResult = await callFunction(senderAuth.idToken, "addFriendByHandle", {
@@ -109,6 +111,133 @@ async function main() {
     {
     roomId,
     text: `text smoke from receiver ${runId}`,
+    },
+  );
+  await callFunction(senderAuth.idToken, "editMessage", {
+    roomId,
+    messageId: senderTextResult.messageId,
+    text: `edited text smoke from sender ${runId}`,
+  });
+  const editedTextDoc = await db
+    .collection("rooms")
+    .doc(roomId)
+    .collection("messages")
+    .doc(senderTextResult.messageId)
+    .get();
+  const reactionResult = await callFunction(receiverAuth.idToken, "addReaction", {
+    roomId,
+    messageId: senderTextResult.messageId,
+    emoji: "👍",
+  });
+  const pinResult = await callFunction(senderAuth.idToken, "pinMessage", {
+    roomId,
+    messageId: senderTextResult.messageId,
+  });
+  const pinDoc = await db
+    .collection("rooms")
+    .doc(roomId)
+    .collection("pins")
+    .doc(senderTextResult.messageId)
+    .get();
+  const unpinResult = await callFunction(senderAuth.idToken, "unpinMessage", {
+    roomId,
+    messageId: senderTextResult.messageId,
+  });
+  const pinDeleted = await waitForDocumentDeleted(pinDoc.ref, 30000);
+  await callFunction(receiverAuth.idToken, "deleteMessage", {
+    roomId,
+    messageId: receiverTextResult.messageId,
+  });
+  const receiverTextDeleted = await waitForDocumentDeleted(
+    db
+      .collection("rooms")
+      .doc(roomId)
+      .collection("messages")
+      .doc(receiverTextResult.messageId),
+    30000,
+  );
+
+  const scheduledAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const scheduledResult = await callFunction(
+    senderAuth.idToken,
+    "scheduleTextMessage",
+    {
+      roomId,
+      text: `scheduled smoke from sender ${runId}`,
+      scheduledAt,
+    },
+  );
+  await callFunction(senderAuth.idToken, "sendScheduledMessageNow", {
+    roomId,
+    messageId: scheduledResult.messageId,
+  });
+  const scheduledDoc = await db
+    .collection("rooms")
+    .doc(roomId)
+    .collection("messages")
+    .doc(scheduledResult.messageId)
+    .get();
+
+  const attachmentLocalPath = path.join(
+    artifactDir,
+    `e2e-attachment-${runId}.txt`,
+  );
+  fs.writeFileSync(
+    attachmentLocalPath,
+    `Verbal E2E attachment smoke ${runId}\n`,
+    "utf8",
+  );
+  const attachmentStoragePath =
+    `attachments/${roomId}/${sender.uid}/e2e-attachment-${runId}.txt`;
+  await uploadFirebaseStorage(
+    senderAuth.idToken,
+    attachmentStoragePath,
+    attachmentLocalPath,
+    {
+      ownerId: sender.uid,
+      roomId,
+      smokeRunId: runId,
+    },
+    "application/octet-stream",
+  );
+  const attachmentResult = await callFunction(
+    senderAuth.idToken,
+    "sendAttachmentMessage",
+    {
+      roomId,
+      kind: "file",
+      caption: `attachment smoke ${runId}`,
+      attachment: {
+        type: "file",
+        title: `E2E attachment ${runId}.txt`,
+        storagePath: attachmentStoragePath,
+        mimeType: "application/octet-stream",
+        sizeBytes: fs.statSync(attachmentLocalPath).size,
+      },
+    },
+  );
+  const locationResult = await callFunction(
+    senderAuth.idToken,
+    "sendAttachmentMessage",
+    {
+      roomId,
+      kind: "location",
+      attachment: {
+        type: "location",
+        title: "E2E Seoul location",
+        address: "Seoul City Hall smoke test point",
+        latitude: 37.5665,
+        longitude: 126.978,
+      },
+    },
+  );
+  const translationResult = await callFunction(
+    receiverAuth.idToken,
+    "translateMessage",
+    {
+      roomId,
+      messageId: senderTextResult.messageId,
+      targetLanguage: "ja",
     },
   );
 
@@ -164,6 +293,7 @@ async function main() {
   const calendarTarget = kstDateParts(
     new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
   );
+  const calendarTranscriptOverride = `${calendarTarget.year}년 ${calendarTarget.month}월 ${calendarTarget.day}일 오후 3시에 E2E 캘린더라는 일정 추가해줘`;
   const calendarTranscript = `${calendarTarget.year}년 ${calendarTarget.month}월 ${calendarTarget.day}일 오후 3시에 E2E 캘린더라는 일정 추가해줘`;
   await uploadFirebaseStorage(senderAuth.idToken, calendarAudioPath, audioPath, {
     ownerId: sender.uid,
@@ -180,7 +310,7 @@ async function main() {
       audioPath: calendarAudioPath,
       language: "ko",
       durationMs: 3500,
-      transcriptOverride: calendarTranscript,
+      transcriptOverride: calendarTranscriptOverride,
     },
   );
   if (!calendarDraftResult.startAt || !calendarDraftResult.endAt) {
@@ -227,6 +357,108 @@ async function main() {
   );
   const calendarDeleted = await waitForDocumentDeleted(calendarRef, 30000);
 
+  const proposalStartOne = new Date(Date.now() + 8 * 24 * 60 * 60 * 1000);
+  proposalStartOne.setUTCHours(6, 0, 0, 0);
+  const proposalEndOne = new Date(proposalStartOne.getTime() + 60 * 60 * 1000);
+  const proposalStartTwo = new Date(Date.now() + 9 * 24 * 60 * 60 * 1000);
+  proposalStartTwo.setUTCHours(7, 0, 0, 0);
+  const proposalEndTwo = new Date(proposalStartTwo.getTime() + 60 * 60 * 1000);
+  const proposalResult = await callFunction(
+    senderAuth.idToken,
+    "createCalendarProposal",
+    {
+      roomId,
+      title: `E2E proposal ${runId}`,
+      details: `E2E proposal details ${runId}`,
+      timezone: "Asia/Seoul",
+      source: "manual",
+      transcript: `proposal transcript ${runId}`,
+      candidates: [
+        {
+          candidateId: "candidate_1",
+          startAt: proposalStartOne.toISOString(),
+          endAt: proposalEndOne.toISOString(),
+        },
+        {
+          candidateId: "candidate_2",
+          startAt: proposalStartTwo.toISOString(),
+          endAt: proposalEndTwo.toISOString(),
+        },
+      ],
+    },
+  );
+  await callFunction(receiverAuth.idToken, "voteCalendarProposal", {
+    roomId,
+    proposalId: proposalResult.proposalId,
+    candidateIds: ["candidate_1"],
+  });
+  await callFunction(senderAuth.idToken, "finalizeCalendarProposal", {
+    roomId,
+    proposalId: proposalResult.proposalId,
+    candidateId: "candidate_1",
+  });
+  const proposalSnapshot = await db
+    .collection("rooms")
+    .doc(roomId)
+    .collection("calendarProposals")
+    .doc(proposalResult.proposalId)
+    .get();
+  const receiverProposalEvent = await db
+    .collection("users")
+    .doc(receiver.uid)
+    .collection("calendarEvents")
+    .doc(`${proposalResult.proposalId}_candidate_1`)
+    .get();
+
+  await clearActionCooldowns([sender.uid, receiver.uid]);
+  const openRoomResult = await callFunction(senderAuth.idToken, "createRoom", {
+    type: "open",
+    title: `E2E Open ${runId}`,
+  });
+  const openInviteResult = await callFunction(
+    senderAuth.idToken,
+    "createRoomInvite",
+    {
+      roomId: openRoomResult.roomId,
+      approvalRequired: false,
+    },
+  );
+  const openJoinResult = await callFunction(receiverAuth.idToken, "joinRoomByInvite", {
+    token: openInviteResult.token,
+  });
+  const openReceiverMember = db
+    .collection("rooms")
+    .doc(openRoomResult.roomId)
+    .collection("members")
+    .doc(receiver.uid);
+  const openReceiverJoined = await openReceiverMember.get();
+  await callFunction(receiverAuth.idToken, "leaveRoom", {
+    roomId: openRoomResult.roomId,
+  });
+  const openReceiverLeft = await openReceiverMember.get();
+
+  await clearActionCooldowns([sender.uid, receiver.uid]);
+  const reportMessageResult = await callFunction(receiverAuth.idToken, "reportMessage", {
+    roomId,
+    messageId: senderTextResult.messageId,
+    reason: "smoke_test",
+    details: `E2E report smoke ${runId}`,
+  });
+  const blockResult = await callFunction(senderAuth.idToken, "blockUser", {
+    blockedUid: receiver.uid,
+    reason: `E2E block smoke ${runId}`,
+  });
+  const reportDoc = await db
+    .collection("reports")
+    .doc(reportDocId(receiver.uid, "message", `${roomId}_${senderTextResult.messageId}`))
+    .get();
+  const blockDoc = await db
+    .collection("blocks")
+    .doc(sender.uid)
+    .collection("users")
+    .doc(receiver.uid)
+    .get();
+
   const roomSnapshot = await db.collection("rooms").doc(roomId).get();
   const messageSnapshot = await db
     .collection("rooms")
@@ -272,6 +504,35 @@ async function main() {
     text: {
       senderMessageId: senderTextResult.messageId,
       receiverMessageId: receiverTextResult.messageId,
+      editedText: editedTextDoc.data()?.text || null,
+      receiverDeleted: receiverTextDeleted,
+    },
+    messageActions: {
+      reactionOk: reactionResult.ok === true,
+      pinOk: pinResult.ok === true,
+      pinCreated: pinDoc.exists,
+      unpinOk: unpinResult.ok === true,
+      pinDeleted,
+    },
+    scheduledMessage: {
+      messageId: scheduledResult.messageId,
+      scheduledAt,
+      deliveryStatus: scheduledDoc.data()?.deliveryStatus || null,
+      text: scheduledDoc.data()?.text || null,
+    },
+    attachment: {
+      messageId: attachmentResult.messageId,
+      storagePath: attachmentStoragePath,
+      localPath: path.relative(repoRoot, attachmentLocalPath),
+    },
+    location: {
+      messageId: locationResult.messageId,
+      latitude: 37.5665,
+      longitude: 126.978,
+    },
+    translation: {
+      targetLanguage: translationResult.targetLanguage,
+      text: translationResult.text,
     },
     fcm: {
       staleTokenSeeded: true,
@@ -309,6 +570,29 @@ async function main() {
       deleteResult: calendarDeleteResult.deleted === true,
       deleted: calendarDeleted,
     },
+    calendarProposal: {
+      proposalId: proposalResult.proposalId,
+      messageId: proposalResult.messageId,
+      status: proposalSnapshot.data()?.status || null,
+      finalCandidateId: proposalSnapshot.data()?.finalCandidateId || null,
+      receiverCalendarEventExists: receiverProposalEvent.exists,
+      receiverCalendarEventTitle: receiverProposalEvent.data()?.title || null,
+    },
+    openChatInvite: {
+      roomId: openRoomResult.roomId,
+      inviteId: openInviteResult.inviteId,
+      token: openInviteResult.token,
+      url: openInviteResult.url,
+      joinStatus: openJoinResult.status,
+      receiverJoined: openReceiverJoined.exists && !openReceiverJoined.data()?.leftAt,
+      receiverLeft: Boolean(openReceiverLeft.data()?.leftAt),
+    },
+    safety: {
+      reportMessageOk: reportMessageResult.ok === true,
+      reportDocumentExists: reportDoc.exists,
+      blockOk: blockResult.ok === true,
+      blockDocumentExists: blockDoc.exists,
+    },
     messageCount: messageSnapshot.size,
     messages: messageSnapshot.docs.map((doc) => ({
       id: doc.id,
@@ -322,6 +606,7 @@ async function main() {
     artifact: path.relative(repoRoot, resultPath),
   };
 
+  assertSmokeResult(result);
   fs.writeFileSync(resultPath, `${JSON.stringify(result, null, 2)}\n`, "utf8");
   console.log(JSON.stringify(result, null, 2));
 
@@ -355,6 +640,18 @@ async function prepareUser(user) {
     },
     { merge: true },
   );
+}
+
+async function clearActionCooldowns(uids) {
+  const db = admin.firestore();
+  const actions = ["createRoomInvite", "joinRoomByInvite", "report", "blockUser"];
+  const batch = db.batch();
+  for (const uid of uids) {
+    for (const action of actions) {
+      batch.delete(db.collection("actionCooldowns").doc(`${safeId(uid)}_${action}`));
+    }
+  }
+  await batch.commit();
 }
 
 async function signInTestPhone(phoneNumber, code) {
@@ -398,7 +695,13 @@ async function callFunction(idToken, name, data) {
   return body.result || {};
 }
 
-async function uploadFirebaseStorage(idToken, storagePath, filePath, metadata) {
+async function uploadFirebaseStorage(
+  idToken,
+  storagePath,
+  filePath,
+  metadata,
+  contentType = "audio/wav",
+) {
   const query = new URLSearchParams({
     uploadType: "media",
     name: storagePath,
@@ -416,7 +719,7 @@ async function uploadFirebaseStorage(idToken, storagePath, filePath, metadata) {
       method: "POST",
       headers: {
         Authorization: `Firebase ${idToken}`,
-        "Content-Type": "audio/wav",
+        "Content-Type": contentType,
         ...metadataHeaders,
       },
       body: fs.readFileSync(filePath),
@@ -451,6 +754,72 @@ function safeJson(value) {
     return JSON.parse(value);
   } catch (_error) {
     return { raw: value };
+  }
+}
+
+function assertSmokeResult(result) {
+  const failures = [];
+  const expect = (condition, label, detail) => {
+    if (!condition) {
+      failures.push({ label, detail });
+    }
+  };
+
+  expect(result.room.exists, "room exists", result.room);
+  expect(result.room.senderMemberExists, "sender member exists", result.room);
+  expect(result.room.receiverMemberExists, "receiver member exists", result.room);
+  expect(result.friend.friendDocumentExists, "friend document exists", result.friend);
+  expect(
+    result.text.editedText === `edited text smoke from sender ${result.runId}`,
+    "text edit persisted",
+    result.text,
+  );
+  expect(result.text.receiverDeleted, "receiver text deleted", result.text);
+  expect(result.messageActions.reactionOk, "reaction callable succeeded", result.messageActions);
+  expect(result.messageActions.pinCreated, "pin document created", result.messageActions);
+  expect(result.messageActions.pinDeleted, "pin document deleted", result.messageActions);
+  expect(
+    result.scheduledMessage.deliveryStatus === "sent",
+    "scheduled message delivered now",
+    result.scheduledMessage,
+  );
+  expect(Boolean(result.attachment.messageId), "file attachment message created", result.attachment);
+  expect(Boolean(result.location.messageId), "location message created", result.location);
+  expect(Boolean(result.translation.text), "translation text returned", result.translation);
+  expect(result.fcm.staleTokenRemoved, "stale FCM token removed", result.fcm);
+  expect(
+    result.voiceReviewSend.draftStatus === "completed",
+    "review voice draft completed",
+    result.voiceReviewSend,
+  );
+  expect(
+    result.voiceInstantSend.finalStatus === "completed" &&
+      Boolean(result.voiceInstantSend.transcript),
+    "instant voice transcript completed",
+    result.voiceInstantSend,
+  );
+  expect(result.calendar.deleted, "calendar event deleted", result.calendar);
+  expect(
+    result.calendarProposal.status === "finalized" &&
+      result.calendarProposal.receiverCalendarEventExists,
+    "calendar proposal finalized and added",
+    result.calendarProposal,
+  );
+  expect(
+    result.openChatInvite.joinStatus === "joined" &&
+      result.openChatInvite.receiverJoined &&
+      result.openChatInvite.receiverLeft,
+    "open chat invite join and leave",
+    result.openChatInvite,
+  );
+  expect(
+    result.safety.reportDocumentExists && result.safety.blockDocumentExists,
+    "safety report and block documents exist",
+    result.safety,
+  );
+
+  if (failures.length > 0) {
+    throw new Error(`Production E2E smoke assertions failed: ${JSON.stringify(failures)}`);
   }
 }
 
@@ -494,6 +863,19 @@ function kstDateParts(date) {
     month: kst.getUTCMonth() + 1,
     day: kst.getUTCDate(),
   };
+}
+
+function reportDocId(uid, targetType, targetId) {
+  const hash = crypto
+    .createHash("sha256")
+    .update(`${uid}:${targetType}:${targetId}`)
+    .digest("hex")
+    .slice(0, 32);
+  return `${safeId(uid).slice(0, 32)}_${targetType}_${hash}`;
+}
+
+function safeId(value) {
+  return String(value).replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 120) || "id";
 }
 
 function sleep(ms) {

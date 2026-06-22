@@ -9,6 +9,10 @@ const _kMuted = Color(0xFFB7BBC3);
 const _kFieldFill = Color(0xFF1C211F);
 const _kFieldBorder = Color(0xFF29332F);
 
+const _kTermsVersion = 'terms-2026-06-18';
+const _kPrivacyVersion = 'privacy-2026-06-18';
+const _kCommunityPolicyVersion = 'community-2026-06-18';
+
 class AuthScreen extends StatefulWidget {
   const AuthScreen({required this.isDemoMode, super.key});
 
@@ -24,6 +28,12 @@ class _AuthScreenState extends State<AuthScreen> {
   String? _verificationId;
   String? _error;
   var _loading = false;
+  var _acceptedTerms = false;
+  var _acceptedPrivacy = false;
+  var _acceptedCommunityPolicy = false;
+
+  bool get _hasRequiredConsent =>
+      _acceptedTerms && _acceptedPrivacy && _acceptedCommunityPolicy;
 
   @override
   void dispose() {
@@ -64,17 +74,32 @@ class _AuthScreenState extends State<AuthScreen> {
                     textAlign: TextAlign.center,
                     style: TextStyle(color: _kMuted, fontSize: 15),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 28),
+                  _PolicyConsentPanel(
+                    acceptedTerms: _acceptedTerms,
+                    acceptedPrivacy: _acceptedPrivacy,
+                    acceptedCommunityPolicy: _acceptedCommunityPolicy,
+                    onTermsChanged: (value) =>
+                        setState(() => _acceptedTerms = value),
+                    onPrivacyChanged: (value) =>
+                        setState(() => _acceptedPrivacy = value),
+                    onCommunityPolicyChanged: (value) =>
+                        setState(() => _acceptedCommunityPolicy = value),
+                  ),
+                  const SizedBox(height: 20),
                   if (widget.isDemoMode)
                     _DemoLogin(
                       loading: _loading,
+                      canSubmit: _hasRequiredConsent,
                       onStart: () => _run(() async {
                         await backend.signInDemo();
+                        await _saveRequiredPolicyConsent(backend);
                       }),
                     )
                   else
                     _PhoneLogin(
                       loading: _loading,
+                      canSubmit: _hasRequiredConsent,
                       phoneController: _phoneController,
                       smsController: _smsController,
                       verificationId: _verificationId,
@@ -82,13 +107,20 @@ class _AuthScreenState extends State<AuthScreen> {
                         final id = await backend.startPhoneVerification(
                           _phoneController.text.trim(),
                         );
-                        setState(() => _verificationId = id);
+                        if (id == '__auto_verified__') {
+                          await _saveRequiredPolicyConsent(backend);
+                          return;
+                        }
+                        if (mounted) {
+                          setState(() => _verificationId = id);
+                        }
                       }),
                       onVerify: () => _run(() async {
                         await backend.verifySmsCode(
                           verificationId: _verificationId!,
                           smsCode: _smsController.text.trim(),
                         );
+                        await _saveRequiredPolicyConsent(backend);
                       }),
                     ),
                   if (_loading) ...[
@@ -116,7 +148,21 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
+  Future<void> _saveRequiredPolicyConsent(MessengerBackend backend) {
+    return backend.savePolicyConsent(
+      termsVersion: _kTermsVersion,
+      privacyVersion: _kPrivacyVersion,
+      communityPolicyVersion: _kCommunityPolicyVersion,
+    );
+  }
+
   Future<void> _run(Future<void> Function() task) async {
+    if (!_hasRequiredConsent) {
+      setState(() {
+        _error = '서비스 이용을 위해 필수 정책에 동의해 주세요.';
+      });
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -158,10 +204,118 @@ class _BrandMark extends StatelessWidget {
   }
 }
 
+class _PolicyConsentPanel extends StatelessWidget {
+  const _PolicyConsentPanel({
+    required this.acceptedTerms,
+    required this.acceptedPrivacy,
+    required this.acceptedCommunityPolicy,
+    required this.onTermsChanged,
+    required this.onPrivacyChanged,
+    required this.onCommunityPolicyChanged,
+  });
+
+  final bool acceptedTerms;
+  final bool acceptedPrivacy;
+  final bool acceptedCommunityPolicy;
+  final ValueChanged<bool> onTermsChanged;
+  final ValueChanged<bool> onPrivacyChanged;
+  final ValueChanged<bool> onCommunityPolicyChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      decoration: BoxDecoration(
+        color: _kFieldFill,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: _kFieldBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(6, 0, 6, 8),
+            child: Text(
+              '필수 동의',
+              style: TextStyle(
+                color: _kInk,
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          _ConsentTile(
+            key: const ValueKey('terms-consent-checkbox'),
+            value: acceptedTerms,
+            label: '이용약관에 동의합니다.',
+            onChanged: onTermsChanged,
+          ),
+          _ConsentTile(
+            key: const ValueKey('privacy-consent-checkbox'),
+            value: acceptedPrivacy,
+            label: '개인정보 처리방침에 동의합니다.',
+            onChanged: onPrivacyChanged,
+          ),
+          _ConsentTile(
+            key: const ValueKey('community-consent-checkbox'),
+            value: acceptedCommunityPolicy,
+            label: '커뮤니티 운영정책에 동의합니다.',
+            onChanged: onCommunityPolicyChanged,
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(6, 8, 6, 0),
+            child: Text(
+              '메시지, 음성 transcript, 파일 등 사용자 생성 콘텐츠의 안전한 이용과 신고 처리를 위한 필수 동의입니다.',
+              style: TextStyle(color: _kMuted, fontSize: 12, height: 1.35),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConsentTile extends StatelessWidget {
+  const _ConsentTile({
+    super.key,
+    required this.value,
+    required this.label,
+    required this.onChanged,
+  });
+
+  final bool value;
+  final String label;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return CheckboxListTile(
+      value: value,
+      onChanged: (next) => onChanged(next ?? false),
+      dense: true,
+      visualDensity: VisualDensity.compact,
+      contentPadding: EdgeInsets.zero,
+      controlAffinity: ListTileControlAffinity.leading,
+      activeColor: _kAccent,
+      checkColor: Colors.white,
+      side: const BorderSide(color: _kMuted, width: 1.4),
+      title: Text(
+        label,
+        style: const TextStyle(color: _kInk, fontWeight: FontWeight.w800),
+      ),
+    );
+  }
+}
+
 class _DemoLogin extends StatelessWidget {
-  const _DemoLogin({required this.loading, required this.onStart});
+  const _DemoLogin({
+    required this.loading,
+    required this.canSubmit,
+    required this.onStart,
+  });
 
   final bool loading;
+  final bool canSubmit;
   final VoidCallback onStart;
 
   @override
@@ -184,7 +338,7 @@ class _DemoLogin extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         FilledButton.icon(
-          onPressed: loading ? null : onStart,
+          onPressed: loading || !canSubmit ? null : onStart,
           icon: const Icon(Icons.play_arrow_rounded),
           label: const Text('데모로 시작'),
         ),
@@ -196,6 +350,7 @@ class _DemoLogin extends StatelessWidget {
 class _PhoneLogin extends StatelessWidget {
   const _PhoneLogin({
     required this.loading,
+    required this.canSubmit,
     required this.phoneController,
     required this.smsController,
     required this.verificationId,
@@ -204,6 +359,7 @@ class _PhoneLogin extends StatelessWidget {
   });
 
   final bool loading;
+  final bool canSubmit;
   final TextEditingController phoneController;
   final TextEditingController smsController;
   final String? verificationId;
@@ -228,7 +384,7 @@ class _PhoneLogin extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         FilledButton.icon(
-          onPressed: loading ? null : onRequestCode,
+          onPressed: loading || !canSubmit ? null : onRequestCode,
           icon: const Icon(Icons.sms_outlined),
           label: const Text('인증번호 받기'),
         ),
@@ -246,7 +402,7 @@ class _PhoneLogin extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           FilledButton.icon(
-            onPressed: loading ? null : onVerify,
+            onPressed: loading || !canSubmit ? null : onVerify,
             icon: const Icon(Icons.login_rounded),
             label: const Text('로그인'),
           ),

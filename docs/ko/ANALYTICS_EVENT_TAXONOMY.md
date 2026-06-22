@@ -35,6 +35,8 @@
 - `send_failed`
 - `upload_failed`
 - `push_token_registered`
+- `global_search_used`
+- `suspicious_link_warning_shown`
 
 ## Crashlytics 키
 
@@ -45,5 +47,6 @@
 - `app_backend_mode`
 - `platform`
 
-첫 베타에서 crash reporting이 필요하다면 릴리즈 빌드 전 Firebase
-Analytics/Crashlytics 런타임 패키지 연결을 추가해야 합니다.
+Flutter Firebase 모드에는 Firebase Analytics/Crashlytics 런타임 연결이
+추가되었습니다. 릴리즈 검증 단계에서는 이벤트 수집, Crashlytics crash grouping,
+non-debug collection 설정이 실제 대시보드에 반영되는지 확인해야 합니다.

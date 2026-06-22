@@ -43,10 +43,14 @@ service firebase.storage {
 
     match /attachments/{roomId}/{uid}/{fileName} {
       allow read: if isRoomParticipant(roomId) || isRoomMember(roomId);
-      allow write: if (isRoomParticipant(roomId) || isRoomMember(roomId))
+      allow write: if signedIn()
         && request.auth.uid == uid
         && isAttachmentUpload();
       allow delete: if false;
+    }
+
+    match /plugin_audio/{partnerId}/{fileName} {
+      allow read, write: if false;
     }
 
     match /{allPaths=**} {

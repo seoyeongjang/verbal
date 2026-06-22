@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import '../../models/messenger_models.dart';
 import '../../services/app_preferences.dart';
 import '../../services/handle_policy.dart';
 import '../../services/messenger_backend.dart';
+import '../../services/telemetry_service.dart';
 import '../calendar/calendar_screen.dart';
 import '../chat/chat_screen.dart';
 import '../shared/profile_avatar.dart';
@@ -38,7 +40,7 @@ class HomeScreen extends StatefulWidget {
 enum _InboxTab {
   messages('메시지'),
   channels('채널'),
-  requests('요청');
+  requests('요청 메시지');
 
   const _InboxTab(this.label);
 
@@ -59,6 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _DirectHeader(
             user: widget.user,
             onMenu: () => _showSettings(context),
+            onSearch: () => _showGlobalSearch(context),
             onCalendar: () => _openCalendar(context),
             onCompose: () => _showNewRoomSheet(context),
           ),
@@ -148,6 +151,34 @@ class _HomeScreenState extends State<HomeScreen> {
   void _openCalendar(BuildContext context) {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => CalendarScreen(user: widget.user)),
+    );
+  }
+
+  void _showGlobalSearch(BuildContext context) {
+    final backend = BackendScope.of(context);
+    unawaited(AppTelemetry.logEvent('global_search_used'));
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      builder: (sheetContext) {
+        return _GlobalSearchSheet(
+          user: widget.user,
+          backend: backend,
+          onOpenRoom: (room) {
+            Navigator.of(sheetContext).pop();
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => ChatScreen(room: room, user: widget.user),
+              ),
+            );
+          },
+          onOpenCalendar: () {
+            Navigator.of(sheetContext).pop();
+            _openCalendar(context);
+          },
+        );
+      },
     );
   }
 
@@ -473,43 +504,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
       },
-    );
-  }
-
-  void _showPreferences(BuildContext context) {
-    _showMenuDetailSheet(
-      context,
-      title: '설정',
-      children: [
-        const Text(
-          '기본 음성 전송 방식',
-          style: TextStyle(fontWeight: FontWeight.w800),
-        ),
-        const SizedBox(height: 10),
-        SegmentedButton<SendMode>(
-          segments: const [
-            ButtonSegment(
-              value: SendMode.confirm,
-              icon: Icon(Icons.rate_review_outlined),
-              label: Text('확인'),
-            ),
-            ButtonSegment(
-              value: SendMode.instant,
-              icon: Icon(Icons.bolt_outlined),
-              label: Text('즉시'),
-            ),
-          ],
-          selected: {widget.user.defaultSendMode},
-          onSelectionChanged: (selection) async {
-            await BackendScope.of(
-              context,
-            ).updateDefaultSendMode(selection.first);
-            if (context.mounted) {
-              Navigator.of(context).pop();
-            }
-          },
-        ),
-      ],
     );
   }
 
@@ -1387,14 +1381,10 @@ class _HomeScreenState extends State<HomeScreen> {
           title: '저장공간 사용량',
           subtitle: '현재 약 24 MB 사용 중',
         ),
-        _SettingTile(
+        const _SettingTile(
           icon: Icons.keyboard_voice_outlined,
-          title: '기본 음성 전송 방식',
-          subtitle: '변환된 음성을 확인 후 전송하거나 즉시 전송합니다.',
-          onTap: () {
-            Navigator.of(context).pop();
-            _showPreferences(this.context);
-          },
+          title: '음성 자동 전송',
+          subtitle: '음성은 STT 변환 후 확인 단계 없이 메시지로 전송됩니다.',
         ),
         _SettingTile(
           icon: Icons.download_rounded,
@@ -2156,12 +2146,14 @@ class _DirectHeader extends StatelessWidget {
   const _DirectHeader({
     required this.user,
     required this.onMenu,
+    required this.onSearch,
     required this.onCalendar,
     required this.onCompose,
   });
 
   final AppUser user;
   final VoidCallback onMenu;
+  final VoidCallback onSearch;
   final VoidCallback onCalendar;
   final VoidCallback onCompose;
 
@@ -2198,11 +2190,21 @@ class _DirectHeader extends StatelessWidget {
             ),
           ),
           IconButton(
+            tooltip: '전체 검색',
+            onPressed: onSearch,
+            style: IconButton.styleFrom(
+              fixedSize: const Size(52, 58),
+              minimumSize: const Size(52, 58),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            icon: const Icon(Icons.search_rounded, color: _kHomeInk, size: 24),
+          ),
+          IconButton(
             tooltip: '일정',
             onPressed: onCalendar,
             style: IconButton.styleFrom(
-              fixedSize: const Size(58, 58),
-              minimumSize: const Size(58, 58),
+              fixedSize: const Size(52, 58),
+              minimumSize: const Size(52, 58),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
             icon: const Icon(
@@ -2215,8 +2217,8 @@ class _DirectHeader extends StatelessWidget {
             tooltip: '새 메시지',
             onPressed: onCompose,
             style: IconButton.styleFrom(
-              fixedSize: const Size(58, 58),
-              minimumSize: const Size(58, 58),
+              fixedSize: const Size(52, 58),
+              minimumSize: const Size(52, 58),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
             icon: const Icon(Icons.edit_square, color: _kHomeInk, size: 22),
@@ -2472,6 +2474,346 @@ class _InboxTabButton extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _GlobalSearchSheet extends StatefulWidget {
+  const _GlobalSearchSheet({
+    required this.user,
+    required this.backend,
+    required this.onOpenRoom,
+    required this.onOpenCalendar,
+  });
+
+  final AppUser user;
+  final MessengerBackend backend;
+  final ValueChanged<ChatRoom> onOpenRoom;
+  final VoidCallback onOpenCalendar;
+
+  @override
+  State<_GlobalSearchSheet> createState() => _GlobalSearchSheetState();
+}
+
+class _GlobalSearchSheetState extends State<_GlobalSearchSheet> {
+  final _controller = TextEditingController();
+  var _query = '';
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 12,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 18,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: _kSoft,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              '전체 검색',
+              style: TextStyle(
+                color: _kLogoBlack,
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const ValueKey('global-search-field'),
+              controller: _controller,
+              autofocus: true,
+              onChanged: (value) => setState(() => _query = value),
+              decoration: const InputDecoration(
+                labelText: '검색어',
+                hintText: '대화, 음성 transcript, 일정 검색',
+                prefixIcon: Icon(Icons.search_rounded),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Flexible(
+              child: StreamBuilder<List<ChatRoom>>(
+                stream: widget.backend.watchRooms(widget.user.uid),
+                builder: (context, roomsSnapshot) {
+                  return StreamBuilder<List<CalendarEvent>>(
+                    stream: widget.backend.watchCalendarEvents(widget.user.uid),
+                    builder: (context, eventsSnapshot) {
+                      final query = _query.trim().toLowerCase();
+                      if (query.isEmpty) {
+                        return const _GlobalSearchHint();
+                      }
+                      final rooms = (roomsSnapshot.data ?? const <ChatRoom>[])
+                          .where((room) => _roomMatches(room, query))
+                          .toList(growable: false);
+                      final allRooms = roomsSnapshot.data ?? const <ChatRoom>[];
+                      final events =
+                          (eventsSnapshot.data ?? const <CalendarEvent>[])
+                              .where((event) => _eventMatches(event, query))
+                              .toList(growable: false);
+                      if (rooms.isEmpty && events.isEmpty && allRooms.isEmpty) {
+                        return const _EmptyDetailState(
+                          icon: Icons.search_off_rounded,
+                          title: '검색 결과가 없습니다',
+                          body: '다른 단어로 다시 검색해 보세요.',
+                        );
+                      }
+                      return ListView(
+                        shrinkWrap: true,
+                        children: [
+                          if (rooms.isNotEmpty) ...[
+                            const _SearchSectionLabel('대화'),
+                            for (final room in rooms)
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: _IconBadge(
+                                  icon: switch (room.type) {
+                                    RoomType.group => Icons.groups_rounded,
+                                    RoomType.open => Icons.tag_rounded,
+                                    RoomType.direct =>
+                                      Icons.chat_bubble_outline_rounded,
+                                  },
+                                ),
+                                title: Text(
+                                  contactProfileForLabel(
+                                    room.title,
+                                  ).displayName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  room.lastMessage?.preview.trim().isNotEmpty ==
+                                          true
+                                      ? room.lastMessage!.preview.trim()
+                                      : '최근 메시지 없음',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                onTap: () => widget.onOpenRoom(room),
+                              ),
+                          ],
+                          _SearchMessageResults(
+                            rooms: allRooms,
+                            query: query,
+                            backend: widget.backend,
+                            showEmptyWhenEmpty: rooms.isEmpty && events.isEmpty,
+                            onOpenRoom: widget.onOpenRoom,
+                          ),
+                          if (events.isNotEmpty) ...[
+                            const _SearchSectionLabel('일정'),
+                            for (final event in events)
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const _IconBadge(
+                                  icon: Icons.event_available_rounded,
+                                ),
+                                title: Text(
+                                  event.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  '${_calendarResultDate(event.startAt)} · ${event.details.isEmpty ? '상세 내용 없음' : event.details}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                onTap: widget.onOpenCalendar,
+                              ),
+                          ],
+                        ],
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static bool _roomMatches(ChatRoom room, String query) {
+    return room.title.toLowerCase().contains(query) ||
+        (room.lastMessage?.preview.toLowerCase().contains(query) ?? false);
+  }
+
+  static bool _eventMatches(CalendarEvent event, String query) {
+    return event.title.toLowerCase().contains(query) ||
+        event.details.toLowerCase().contains(query) ||
+        event.transcript.toLowerCase().contains(query);
+  }
+
+  static String _calendarResultDate(DateTime value) {
+    return '${value.month}/${value.day} ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+  }
+}
+
+class _SearchMessageResults extends StatelessWidget {
+  const _SearchMessageResults({
+    required this.rooms,
+    required this.query,
+    required this.backend,
+    required this.showEmptyWhenEmpty,
+    required this.onOpenRoom,
+  });
+
+  final List<ChatRoom> rooms;
+  final String query;
+  final MessengerBackend backend;
+  final bool showEmptyWhenEmpty;
+  final ValueChanged<ChatRoom> onOpenRoom;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<_GlobalMessageHit>>(
+      future: _loadMessageHits(),
+      builder: (context, snapshot) {
+        final hits = snapshot.data ?? const <_GlobalMessageHit>[];
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: LinearProgressIndicator(),
+          );
+        }
+        if (hits.isEmpty) {
+          if (!showEmptyWhenEmpty) {
+            return const SizedBox.shrink();
+          }
+          return const _EmptyDetailState(
+            icon: Icons.search_off_rounded,
+            title: '검색 결과가 없습니다',
+            body: '다른 단어로 다시 검색해 보세요.',
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const _SearchSectionLabel('메시지'),
+            for (final hit in hits)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const _IconBadge(icon: Icons.forum_rounded),
+                title: Text(
+                  contactProfileForLabel(hit.room.title).displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+                subtitle: Text(
+                  hit.preview,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                onTap: () => onOpenRoom(hit.room),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<List<_GlobalMessageHit>> _loadMessageHits() async {
+    if (query.isEmpty || rooms.isEmpty) {
+      return const [];
+    }
+    final hits = <_GlobalMessageHit>[];
+    for (final room in rooms.take(25)) {
+      final messages = await backend
+          .watchMessages(room.id)
+          .first
+          .timeout(const Duration(seconds: 2), onTimeout: () => const []);
+      for (final message in messages) {
+        final preview = _messageSearchText(message);
+        if (preview.toLowerCase().contains(query)) {
+          hits.add(_GlobalMessageHit(room: room, preview: preview));
+        }
+        if (hits.length >= 30) {
+          return hits;
+        }
+      }
+    }
+    return hits;
+  }
+
+  static String _messageSearchText(ChatMessage message) {
+    final parts =
+        <String>[
+              message.displayText,
+              message.voiceTranscriptText,
+              message.attachment?.title ?? '',
+              message.attachment?.address ?? '',
+            ]
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toSet()
+            .toList(growable: false);
+    return parts.isEmpty ? '메시지' : parts.join(' · ');
+  }
+}
+
+class _GlobalMessageHit {
+  const _GlobalMessageHit({required this.room, required this.preview});
+
+  final ChatRoom room;
+  final String preview;
+}
+
+class _SearchSectionLabel extends StatelessWidget {
+  const _SearchSectionLabel(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 10, bottom: 4),
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: _kMuted,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+}
+
+class _GlobalSearchHint extends StatelessWidget {
+  const _GlobalSearchHint();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _EmptyDetailState(
+      icon: Icons.manage_search_rounded,
+      title: '찾고 싶은 내용을 입력하세요',
+      body: '대화방, 최근 메시지, 음성 transcript, 캘린더 일정까지 한 번에 검색합니다.',
     );
   }
 }
@@ -2917,14 +3259,14 @@ class _NewRoomSheetState extends State<NewRoomSheet> {
                     _CreateModeCard(
                       icon: Icons.chat_bubble_outline_rounded,
                       title: '일반채팅',
-                      subtitle: '친구 목록에서 선택합니다. 1명은 1:1, 2명 이상은 그룹으로 열립니다.',
+                      subtitle: '친구 1명을 선택하면 1:1, 2명 이상 선택하면 그룹 대화방으로 열립니다.',
                       onTap: () => _selectMode(_RoomCreateMode.normal),
                     ),
                     const SizedBox(height: 10),
                     _CreateModeCard(
                       icon: Icons.tag_rounded,
                       title: '오픈채팅',
-                      subtitle: '친구가 아니어도 아이디 검색으로 참여자를 초대합니다.',
+                      subtitle: '등록 친구를 초대하거나 링크와 QR을 만들어 공유할 수 있습니다.',
                       onTap: () => _selectMode(_RoomCreateMode.open),
                     ),
                     const SizedBox(height: 20),
@@ -2944,6 +3286,7 @@ class _NewRoomSheetState extends State<NewRoomSheet> {
                       _error!,
                       style: TextStyle(
                         color: Theme.of(context).colorScheme.error,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
                   ],
@@ -2992,7 +3335,7 @@ class _NewRoomSheetState extends State<NewRoomSheet> {
                       child: Padding(
                         padding: EdgeInsets.all(24),
                         child: Text(
-                          '표시할 친구가 없습니다. 아래에서 아이디를 직접 추가할 수 있습니다.',
+                          '초대할 친구가 없습니다. 아이디를 직접 입력할 수 있습니다.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: _kMuted,
@@ -3032,7 +3375,7 @@ class _NewRoomSheetState extends State<NewRoomSheet> {
             controller: _titleController,
             decoration: const InputDecoration(
               labelText: '대화방 이름',
-              hintText: '선택 사항',
+              hintText: '예: 프로젝트 팀',
               prefixIcon: Icon(Icons.chat_bubble_outline_rounded),
             ),
           ),
@@ -3048,7 +3391,7 @@ class _NewRoomSheetState extends State<NewRoomSheet> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.check_rounded),
-          label: Text(_selectedHandles.length > 1 ? '그룹채팅 만들기' : '채팅 시작'),
+          label: Text(_selectedHandles.length > 1 ? '그룹 만들기' : '채팅 시작'),
         ),
       ],
     );
@@ -3065,7 +3408,7 @@ class _NewRoomSheetState extends State<NewRoomSheet> {
           controller: _titleController,
           decoration: const InputDecoration(
             labelText: '오픈채팅방 이름',
-            hintText: '예: 주말 러닝 모임',
+            hintText: '예: 런칭 준비방',
             prefixIcon: Icon(Icons.tag_rounded),
           ),
         ),
@@ -3102,7 +3445,7 @@ class _NewRoomSheetState extends State<NewRoomSheet> {
                       child: Padding(
                         padding: EdgeInsets.all(20),
                         child: Text(
-                          '검색된 등록 친구가 없습니다. 아래에서 아이디를 직접 입력하거나 링크만 공유할 수 있습니다.',
+                          '등록된 친구가 없습니다. 아래에서 아이디를 직접 추가할 수 있습니다.',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             color: _kMuted,
@@ -3138,7 +3481,7 @@ class _NewRoomSheetState extends State<NewRoomSheet> {
             labelText: '추가로 초대할 아이디',
             hintText: 'user_a, user_b',
             prefixIcon: Icon(Icons.alternate_email_rounded),
-            helperText: '친구가 아니어도 아이디로 초대할 수 있고, 비워두면 링크만 생성합니다.',
+            helperText: '쉼표로 여러 명을 입력할 수 있고, 선택한 친구와 함께 초대됩니다.',
           ),
         ),
         const SizedBox(height: 16),
@@ -3206,7 +3549,7 @@ class _NewRoomSheetState extends State<NewRoomSheet> {
     final handle = normalizeHandle(_manualHandleController.text);
     final error = validateHandle(handle);
     if (handle.isEmpty || error != null) {
-      setState(() => _error = error ?? '추가할 아이디를 입력하세요.');
+      setState(() => _error = error ?? '올바른 아이디를 입력해 주세요.');
       return;
     }
     setState(() {
@@ -3219,7 +3562,7 @@ class _NewRoomSheetState extends State<NewRoomSheet> {
   Future<void> _createSelectedRoom(_RoomCreateMode mode) async {
     final handles = _selectedHandles.toList(growable: false);
     if (handles.isEmpty) {
-      setState(() => _error = '초대할 친구를 선택하거나 아이디를 추가하세요.');
+      setState(() => _error = '초대할 친구를 선택하거나 아이디를 입력해 주세요.');
       return;
     }
     final type = handles.length == 1 ? RoomType.direct : RoomType.group;
@@ -3252,7 +3595,7 @@ class _NewRoomSheetState extends State<NewRoomSheet> {
   Future<void> _createOpenRoom() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) {
-      setState(() => _error = '오픈채팅방 이름을 입력하세요.');
+      setState(() => _error = '오픈채팅방 이름을 입력해 주세요.');
       return;
     }
     final handles = {
@@ -3350,7 +3693,7 @@ class _NewRoomSheetState extends State<NewRoomSheet> {
             if (sheetContext.mounted) {
               ScaffoldMessenger.of(
                 sheetContext,
-              ).showSnackBar(const SnackBar(content: Text('오픈채팅 링크를 복사했습니다.')));
+              ).showSnackBar(const SnackBar(content: Text('초대 링크를 복사했습니다.')));
             }
           },
           onEnter: () {
@@ -3369,10 +3712,10 @@ class _NewRoomSheetState extends State<NewRoomSheet> {
   String _friendlyRoomError(Object error) {
     final raw = error.toString();
     if (raw.contains('not-found') || raw.contains('Handle not found')) {
-      return '입력한 아이디를 찾을 수 없습니다.';
+      return '해당 아이디를 찾을 수 없습니다.';
     }
     if (raw.contains('Direct rooms must have exactly two participants')) {
-      return '1:1 채팅은 친구 1명만 선택할 수 있습니다.';
+      return '1:1 대화는 친구 1명만 선택할 수 있습니다.';
     }
     return raw
         .replaceFirst(RegExp(r'^\[firebase_functions/[^\]]+\]\s*'), '')
@@ -3383,7 +3726,7 @@ class _NewRoomSheetState extends State<NewRoomSheet> {
   Future<void> _joinInvite() async {
     final token = _inviteController.text.trim();
     if (token.isEmpty) {
-      setState(() => _error = '초대 링크 또는 코드를 입력하세요.');
+      setState(() => _error = '초대 링크 또는 코드를 입력해 주세요.');
       return;
     }
 
@@ -3399,7 +3742,7 @@ class _NewRoomSheetState extends State<NewRoomSheet> {
         return;
       }
       if (result.pending) {
-        setState(() => _error = '참여 요청을 보냈습니다. 관리자 승인을 기다려 주세요.');
+        setState(() => _error = '승인 대기 중입니다. 관리자가 승인하면 입장할 수 있습니다.');
         return;
       }
       navigator.pop();

@@ -49,14 +49,14 @@
 | --- | --- | --- |
 | 실기기 전체 E2E 검증 | Verbal은 전화번호 인증, 마이크, STT, 푸시, Storage, 네이티브 권한에 의존합니다. 에뮬레이터/브라우저 확인만으로는 런칭 근거가 부족합니다. | 남은 런칭 차단 항목. |
 | FCM foreground/background/terminated 검증 | 메신저에서 알림이 불안정하면 서비스가 바로 깨져 보입니다. | 백엔드 경로는 있으나 실기기 수신 검증 필요. |
-| 음성 보존기간 만료 검증 | 제품 정책상 음성은 삭제되고 transcript는 남아야 합니다. 운영 데이터에서 증명해야 합니다. | Functions 소스는 있으나 운영 동작 검증 필요. |
-| 가입 시 약관/개인정보/UGC 정책 동의 | Google Play UGC 정책은 UGC 생성/업로드 전 약관 또는 사용자 정책 동의를 요구합니다. | 정책 문서는 있으나 명시적 동의 gate 확인 또는 추가 필요. |
-| 계정 삭제 웹 endpoint | Google Play는 앱 내 삭제와 별개로 삭제 요청용 웹 리소스를 요구합니다. | 앱 내 삭제는 있음. 외부 웹 endpoint 확정 필요. |
+| 음성 보존기간 만료 검증 | 제품 정책상 음성은 삭제되고 transcript는 남아야 합니다. 운영 데이터에서 증명해야 합니다. | 2026-06-18 에뮬레이터와 운영 `retention_probe_*` 검증이 통과했습니다. |
+| 가입 시 약관/개인정보/UGC 정책 동의 | Google Play UGC 정책은 UGC 생성/업로드 전 약관 또는 사용자 정책 동의를 요구합니다. | 이용약관, 개인정보 처리방침, 커뮤니티/UGC 운영정책 필수 동의 gate를 구현했고 동의 버전을 사용자 문서에 저장합니다. |
+| 계정 삭제 웹 endpoint | Google Play는 앱 내 삭제와 별개로 삭제 요청용 웹 리소스를 요구합니다. | 앱 내 삭제가 있고 `https://verbal.chat/account/delete`, `https://verbal.chat/data-deletion` 호스팅 endpoint가 열려 있습니다. Play Console 입력 증거 기록은 아직 필요합니다. |
 | moderation queue와 처리 workflow | 신고/차단 버튼만으로는 부족합니다. 운영자 처리, SLA, 이의제기, audit trail이 필요합니다. | runbook은 있음. 운영 도구/상태 workflow 검증 필요. |
 | 안전센터 완성도 | Kakao/Apple/Google 패턴상 신고, 차단, 정책, 연락처, 보호 안내는 찾기 쉬워야 합니다. | 기본 메뉴는 있음. 신고 상태, 이의제기, 안전 안내 보강 필요. |
-| 의심 링크/피싱 경고 | 한국 메신저에서 피싱/스팸 리스크가 큽니다. 카카오도 피싱 방지를 주요 안전 지표로 다룹니다. | P0 안전 보강 권장. |
+| 의심 링크/피싱 경고 | 한국 메신저에서 피싱/스팸 리스크가 큽니다. 카카오도 피싱 방지를 주요 안전 지표로 다룹니다. | 발신 텍스트 링크 경고 v1 구현 완료. 베타에서 악용 패턴별 문구와 예외 조정 필요. |
 | 읽음 표시 프라이버시 제어 | Instagram과 Telegram 모두 읽음 제어를 제공합니다. 사용자 기대값입니다. | 읽음 상태는 있으나 사용자 제어 기능 확인/보강 필요. |
-| 전체 검색 | transcript-first 메신저에서는 채팅, transcript, 저장한 메시지, 파일, 캘린더를 한 번에 찾는 기능이 핵심입니다. | 방 내부 검색은 있음. 전체 검색은 추가 권장. |
+| 전체 검색 | transcript-first 메신저에서는 채팅, transcript, 저장한 메시지, 파일, 캘린더를 한 번에 찾는 기능이 핵심입니다. | 홈 전체 검색 v1은 방, 메시지 본문, 음성 transcript, 첨부 metadata, 캘린더 일정을 검색합니다. 대규모 전에는 서버 색인화가 필요합니다. |
 | 저장한 메시지 v1 완성 | Telegram처럼 개인 저장함은 transcript, 링크, 파일, 일정 메모와 잘 맞습니다. | 메뉴는 있음. 태그/원본방 링크 포함한 완성 workflow 필요. |
 
 ### P1: 베타 경쟁력 강화 기능
@@ -72,7 +72,7 @@
 | 방별 알림 세부 설정 | 실제 메신저 사용자는 알림을 매우 세밀하게 관리합니다. | 기간별 음소거, 멘션만, 음성만, 캘린더만. |
 | 메시지 북마크/저장한 메시지로 저장 | 고정 메시지의 부담을 줄이고 개인 저장함을 활성화합니다. | 길게 누르기 저장, 태그, 원본방 backlink. |
 | 캘린더 공유 고도화 | 채팅방 일정 제안은 Verbal의 차별화입니다. | 후보별 댓글, 제안별 알림, 추후 ICS/export. |
-| Crashlytics/Analytics 운영 연동 | 베타를 감으로 운영하지 않으려면 실제 지표가 필요합니다. | 기존 이벤트 taxonomy를 실제 analytics/crash reporting에 연결. |
+| Crashlytics/Analytics 운영 연동 | 베타를 감으로 운영하지 않으려면 실제 지표가 필요합니다. | Firebase Analytics/Crashlytics 런타임 연결 완료. 릴리즈 대시보드 수집 검증은 남음. |
 
 ### P2: 안정 베타 이후 확장
 
@@ -123,25 +123,27 @@
   필요한 경우 제3자 STT provider 삭제 요청.
 - 데이터 내보내기 JSON이 계정, 메시지, 저장한 메시지, 캘린더, 주요 metadata를
   포함하는지 확인합니다.
-- 음성 보존기간 job이 음성파일은 삭제하고 transcript와 audit metadata는 남기는지
-  검증합니다.
+- 각 릴리즈 후보마다 음성 보존기간 probe를 다시 실행합니다:
+  `npm run verify:audio-retention`, 운영 검증은
+  `VERIFY_AUDIO_RETENTION_PROD=1 npm run verify:audio-retention:prod`.
 - Firebase/GCP 예산, logging alert, Deepgram 사용량 alert, 이상 사용량 alert가
   실제로 켜져 있는지 확인합니다.
 - 백업, 장애 대응, rollback, release versioning 절차를 확정합니다.
 
 ### 안전과 정책
 
-- 가입 단계에서 이용약관, 개인정보 처리방침, 사용자/UGC 정책 동의를 추가 또는 검증합니다.
+- 내부 테스트에서 구현된 이용약관, 개인정보 처리방침, 사용자/UGC 정책 동의 흐름을 검증합니다.
 - 메시지, 방, 프로필, 초대, 공개/커뮤니티 콘텐츠에 대한 신고/차단 경로를 확인합니다.
 - moderation queue, 운영자 메모, 이의제기 처리, 신고 상태 안내를 구축 또는 검증합니다.
-- 광범위한 초대/커뮤니티 기능을 열기 전 의심 링크/피싱 경고를 추가합니다.
+- 광범위한 초대/커뮤니티 기능을 열기 전 의심 링크/피싱 경고 동작을 검증합니다.
 - 오픈/커뮤니티 방은 moderation capacity가 증명되기 전까지 feature flag 뒤에 둡니다.
 
 ### 스토어와 법무
 
 - Google Play Console 앱 등록을 만들고 최신 AAB를 internal testing에 업로드합니다.
 - Google Play Data Safety, content rating, target audience, ads declaration,
-  permissions declaration, account deletion web URL을 완료합니다.
+  permissions declaration을 완료하고 검증된 account deletion web URL을
+  입력합니다.
 - 개인정보 처리방침, 이용약관, 데이터 삭제 정책, 위치기반서비스 약관,
   고객지원 연락처, 한국 런칭용 청소년 보호정책을 최종화합니다.
 - 스크린샷/영상 자료를 준비합니다:
@@ -151,17 +153,20 @@
 
 ## 권장 다음 개발 순서
 
-1. 실기기 운영 QA를 끝내고 남은 P0 런칭 차단 항목을 닫습니다.
-2. 약관/사용자 정책 명시 동의가 강제되어 있지 않다면 추가합니다.
-3. 계정 삭제 웹 endpoint를 만들고 Play Console 및 정책 문서에 연결합니다.
-4. 전체 검색을 추가합니다: 방, transcript, 저장한 메시지, 첨부, 캘린더.
-5. 저장한 메시지를 태그와 원본방 backlink까지 포함해 완성합니다.
-6. 인박스 폴더/보관함/안읽음/음성 필터를 추가합니다.
-7. 읽음 표시 프라이버시와 그룹 참여 미리보기/거절 기능을 추가합니다.
-8. 안전센터를 고도화합니다: 신고 상태, 이의제기, 피싱 경고, 신고하고 나가기.
-9. 고급 음성 컨트롤을 추가합니다: 일시정지/재개, 재생 속도, transcript 접기,
+1. Play Console 앱 생성/internal testing 업로드와 실기기 운영 QA를 끝내고
+   남은 P0 런칭 차단 항목을 닫습니다.
+2. Play Console, Data Safety, 실기기 E2E, FCM 증거를
+   `npm run record:launch-evidence -- <command>` 명령으로 기록한 뒤
+   `npm run verify:launch-evidence`와 `npm run report:launch-gate`를 실행합니다.
+3. 전체 검색 v1을 검증합니다: 방, transcript, 첨부, 캘린더. 대규모 전에는
+   클라이언트 fan-out 검색을 서버 색인 기반으로 교체합니다.
+4. 저장한 메시지를 태그와 원본방 backlink까지 포함해 완성합니다.
+5. 인박스 폴더/보관함/안읽음/음성 필터를 추가합니다.
+6. 읽음 표시 프라이버시와 그룹 참여 미리보기/거절 기능을 추가합니다.
+7. 안전센터를 고도화합니다: 신고 상태, 이의제기, 피싱 경고, 신고하고 나가기.
+8. 고급 음성 컨트롤을 추가합니다: 일시정지/재개, 재생 속도, transcript 접기,
    confidence/수정 이력.
-10. 알림, 삭제, 보존기간, moderation, 스토어 정책 gate가 검증된 뒤 closed beta를 시작합니다.
+9. 알림, 삭제, 보존기간, moderation, 스토어 정책 gate가 검증된 뒤 closed beta를 시작합니다.
 
 ## 참고 자료
 

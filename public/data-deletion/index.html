@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Verbal 데이터 삭제 정책</title>
+    <meta
+      name="description"
+      content="Verbal 계정, 메시지, 음성 파일, transcript 데이터 삭제 정책입니다."
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #111111;
+        --muted: #60646c;
+        --line: #e8ecea;
+        --soft: #effaf4;
+        --brand: #00a86b;
+        --brand-dark: #007a54;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: #f7fbf8;
+        color: var(--ink);
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.55;
+      }
+
+      main {
+        width: min(760px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 56px 0;
+      }
+
+      article {
+        background: #ffffff;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        padding: 28px;
+        box-shadow: 0 18px 46px rgba(17, 17, 17, 0.07);
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: clamp(30px, 6vw, 48px);
+        letter-spacing: 0;
+        line-height: 1.08;
+      }
+
+      h2 {
+        margin: 28px 0 10px;
+        font-size: 20px;
+      }
+
+      p,
+      li {
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      ul {
+        padding-left: 22px;
+      }
+
+      a {
+        color: var(--brand-dark);
+        font-weight: 800;
+      }
+
+      .button {
+        display: inline-flex;
+        min-height: 48px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        padding: 0 18px;
+        background: var(--brand);
+        color: #ffffff;
+        text-decoration: none;
+        font-weight: 900;
+        margin-top: 12px;
+      }
+
+      .note {
+        margin-top: 22px;
+        border-left: 4px solid var(--brand);
+        background: var(--soft);
+        border-radius: 14px;
+        padding: 14px 16px;
+      }
+
+      footer {
+        margin-top: 18px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <article>
+        <h1>데이터 삭제 정책</h1>
+        <p>
+          이 페이지는 Verbal 계정 삭제와 데이터 삭제 요청 시 처리되는 데이터의
+          범위를 설명합니다.
+        </p>
+
+        <h2>삭제 또는 비활성화되는 데이터</h2>
+        <ul>
+          <li>사용자 프로필 표시 정보</li>
+          <li>사용자 아이디 선점 정보</li>
+          <li>푸시 알림 토큰</li>
+          <li>활성 대화방 멤버십</li>
+          <li>Firebase Auth 계정</li>
+        </ul>
+
+        <h2>보존될 수 있는 데이터</h2>
+        <ul>
+          <li>상대방에게 이미 전달된 메시지와 대화 맥락</li>
+          <li>법적 의무 또는 운영상 필요한 신고/보안 기록</li>
+          <li>음성 파일 삭제 후에도 대화 검색과 접근성을 위해 필요한 transcript</li>
+        </ul>
+
+        <h2>음성 파일 보존기간</h2>
+        <p>
+          음성 파일은 대화방의 보존기간 설정을 따릅니다. 기본 보존기간은 1일이며,
+          만료 후 음성 파일은 삭제되고 transcript는 유지될 수 있습니다.
+        </p>
+
+        <h2>요청 경로</h2>
+        <p>
+          앱에서 직접 삭제하려면 Verbal 앱의
+          <strong>메뉴 -> 계정 관리 -> 계정 삭제</strong>를 사용하세요. 앱에 접근할
+          수 없다면 웹 삭제 요청 페이지를 이용하세요.
+        </p>
+        <a class="button" href="/account/delete">계정 삭제 요청으로 이동</a>
+
+        <p>
+          앱에 접근할 수 없거나 추가 확인이 필요하면
+          <a href="mailto:support@verbal.chat">support@verbal.chat</a>으로
+          데이터 삭제 문의를 보낼 수 있습니다.
+        </p>
+
+        <div class="note">
+          데이터 삭제 요청은 본인 확인과 법적 보존 의무 확인 후 처리됩니다. 추가
+          확인이 필요한 경우 `support@verbal.chat`으로 안내합니다.
+        </div>
+      </article>
+      <footer>Last updated: 2026-06-18</footer>
+    </main>
+  </body>
+</html>

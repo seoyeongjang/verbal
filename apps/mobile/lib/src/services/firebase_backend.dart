@@ -15,6 +15,7 @@ import 'handle_policy.dart';
 import 'local_audio_bytes.dart';
 import 'messenger_backend.dart';
 import 'realtime_relay_health.dart';
+import 'telemetry_service.dart';
 
 String _voiceTranscriptValue(String? value) {
   final text = value?.trim() ?? '';
@@ -103,13 +104,14 @@ class FirebaseMessengerBackend implements MessengerBackend {
           .doc(firebaseUser.uid)
           .snapshots()
           .map((snapshot) {
+            unawaited(AppTelemetry.setUser(firebaseUser.uid));
             final data = snapshot.data();
             if (data == null) {
               return AppUser(
                 uid: firebaseUser.uid,
                 displayName: firebaseUser.displayName ?? '',
                 handle: '',
-                defaultSendMode: SendMode.confirm,
+                defaultSendMode: SendMode.instant,
               );
             }
             return AppUser.fromMap(firebaseUser.uid, data);
@@ -204,7 +206,7 @@ class FirebaseMessengerBackend implements MessengerBackend {
       transaction.set(userRef, {
         'displayName': displayName.trim(),
         'handle': normalizedHandle,
-        'defaultSendMode': SendMode.confirm.name,
+        'defaultSendMode': SendMode.instant.name,
         'calendarReminderEnabled':
             userSnapshot.data()?['calendarReminderEnabled'] ?? true,
         'calendarReminderLeadMinutes':
@@ -226,6 +228,27 @@ class FirebaseMessengerBackend implements MessengerBackend {
     });
 
     final snapshot = await userRef.get();
+    unawaited(AppTelemetry.logEvent('profile_saved'));
+    return AppUser.fromMap(user.uid, snapshot.data() ?? {});
+  }
+
+  @override
+  Future<AppUser> savePolicyConsent({
+    required String termsVersion,
+    required String privacyVersion,
+    required String communityPolicyVersion,
+  }) async {
+    final user = _requireUser();
+    final userRef = _firestore.collection('users').doc(user.uid);
+    await userRef.set({
+      'termsVersion': termsVersion.trim(),
+      'privacyVersion': privacyVersion.trim(),
+      'communityPolicyVersion': communityPolicyVersion.trim(),
+      'policyAcceptedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    final snapshot = await userRef.get();
+    unawaited(AppTelemetry.logEvent('policy_consent_saved'));
     return AppUser.fromMap(user.uid, snapshot.data() ?? {});
   }
 
@@ -259,7 +282,9 @@ class FirebaseMessengerBackend implements MessengerBackend {
 
   @override
   Future<Map<String, dynamic>> exportMyData() async {
-    return _call('exportMyData', {});
+    final data = await _call('exportMyData', {});
+    unawaited(AppTelemetry.logEvent('account_data_exported'));
+    return data;
   }
 
   @override
@@ -270,6 +295,7 @@ class FirebaseMessengerBackend implements MessengerBackend {
   @override
   Future<void> deleteAccount() async {
     await _call('deleteMyAccount', {});
+    unawaited(AppTelemetry.logEvent('account_deleted'));
     await _auth.signOut();
   }
 
@@ -582,6 +608,12 @@ class FirebaseMessengerBackend implements MessengerBackend {
       }
       await _call('sendTextMessage', data);
     }
+    unawaited(
+      AppTelemetry.logEvent(
+        'message_text_sent',
+        parameters: {'room_id': roomId},
+      ),
+    );
   }
 
   @override
@@ -638,6 +670,9 @@ class FirebaseMessengerBackend implements MessengerBackend {
       data['replyToMessageId'] = replyToMessageId;
     }
     await _call('sendAttachmentMessage', data);
+    unawaited(
+      AppTelemetry.logEvent('attachment_sent', parameters: {'kind': kind.name}),
+    );
   }
 
   Future<void> _sendTextMessageDirect({
@@ -657,7 +692,7 @@ class FirebaseMessengerBackend implements MessengerBackend {
       'audioPath': null,
       'durationMs': 0,
       'sttStatus': SttStatus.none.name,
-      'sendMode': SendMode.confirm.name,
+      'sendMode': SendMode.instant.name,
       'replyTo': replyTo,
       'deliveryStatus': MessageDeliveryStatus.sent.name,
       'clientCreated': true,
@@ -1488,6 +1523,12 @@ class FirebaseMessengerBackend implements MessengerBackend {
         'skipInlineStt=$skipInlineStt '
         'forceServerSttCorrection=$forceServerSttCorrection',
       );
+      unawaited(
+        AppTelemetry.logEvent(
+          'message_voice_sent',
+          parameters: {'duration_ms': durationMs, 'upload_ms': uploadMs},
+        ),
+      );
       final finalizedSttStatus = '${result['sttStatus'] ?? ''}';
       if (!hasManualTranscript && finalizedSttStatus != 'completed') {
         unawaited(
@@ -1602,6 +1643,16 @@ class FirebaseMessengerBackend implements MessengerBackend {
         );
         final sttStatus = '${result['sttStatus'] ?? ''}';
         if (transcriptLength > 0 || sttStatus == 'completed') {
+          unawaited(
+            AppTelemetry.logEvent(
+              'message_voice_stt_completed',
+              parameters: {
+                'duration_ms': durationMs,
+                'transcript_length': transcriptLength,
+                'cache_hit': result['cacheHit'] == true ? 1 : 0,
+              },
+            ),
+          );
           return VoiceInlineSttResult(
             messageId: '${result['messageId'] ?? messageId}',
             sttStatus: sttStatus,
@@ -1619,6 +1670,12 @@ class FirebaseMessengerBackend implements MessengerBackend {
       } catch (error, stackTrace) {
         debugPrint(
           'Inline voice STT failed messageId=$messageId attempt=$attempt: $error',
+        );
+        unawaited(
+          AppTelemetry.logEvent(
+            'message_voice_stt_failed',
+            parameters: {'attempt': attempt, 'duration_ms': durationMs},
+          ),
         );
         if (attempt == 1) {
           debugPrintStack(stackTrace: stackTrace);
@@ -1751,6 +1808,12 @@ class FirebaseMessengerBackend implements MessengerBackend {
       'messageId': messageId,
       'reason': reason,
     });
+    unawaited(
+      AppTelemetry.logEvent(
+        'report_submitted',
+        parameters: {'target': 'message', 'reason': reason},
+      ),
+    );
   }
 
   @override
@@ -1759,6 +1822,12 @@ class FirebaseMessengerBackend implements MessengerBackend {
     required String reason,
   }) async {
     await _call('reportRoom', {'roomId': roomId, 'reason': reason});
+    unawaited(
+      AppTelemetry.logEvent(
+        'report_submitted',
+        parameters: {'target': 'room', 'reason': reason},
+      ),
+    );
   }
 
   @override
@@ -1910,6 +1979,12 @@ class FirebaseMessengerBackend implements MessengerBackend {
           'platform': _platformName,
           'updatedAt': FieldValue.serverTimestamp(),
         });
+    unawaited(
+      AppTelemetry.logEvent(
+        'push_token_registered',
+        parameters: {'platform': _platformName},
+      ),
+    );
   }
 
   Future<Map<String, dynamic>> _call(
@@ -1956,7 +2031,7 @@ class FirebaseMessengerBackend implements MessengerBackend {
       await userRef.set({
         'displayName': user.displayName ?? '',
         'handle': '',
-        'defaultSendMode': SendMode.confirm.name,
+        'defaultSendMode': SendMode.instant.name,
         'calendarReminderEnabled': true,
         'calendarReminderLeadMinutes': 30,
         'morningBriefingEnabled': false,
@@ -1971,7 +2046,7 @@ class FirebaseMessengerBackend implements MessengerBackend {
         uid: user.uid,
         displayName: user.displayName ?? '',
         handle: '',
-        defaultSendMode: SendMode.confirm,
+        defaultSendMode: SendMode.instant,
         calendarReminderEnabled: true,
         calendarReminderLeadMinutes: 30,
         morningBriefingEnabled: false,

@@ -18,6 +18,8 @@ Korean translation: `docs/ko/DATA_DELETION_POLICY.md`
 ## Implementation
 
 - Mobile app: `Menu -> Account management -> 계정 삭제`.
+- Web request page: `https://verbal.chat/account/delete`.
+- Data deletion policy page: `https://verbal.chat/data-deletion`.
 - Firebase callable: `deleteMyAccount`.
 - Data export callable: `exportMyData`.
 - Auth user is deleted through Firebase Admin SDK after Firestore cleanup.
@@ -30,6 +32,9 @@ Korean translation: `docs/ko/DATA_DELETION_POLICY.md`
 
 ## Operational Checks
 
+- Deploy Firebase Hosting and confirm both `/account/delete` and
+  `/data-deletion` are reachable over HTTPS before entering the URL in Google
+  Play Console.
 - Confirm the user can no longer sign in with the deleted Firebase Auth account.
 - Confirm the deleted handle no longer points to the old UID.
 - Confirm rooms no longer list the deleted user as an active participant.

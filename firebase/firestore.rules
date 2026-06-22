@@ -42,6 +42,23 @@ service cloud.firestore {
           || data.holidayCountryCode in ['none', 'KR', 'US', 'JP', 'CN']);
     }
 
+    function validPolicyConsent(data) {
+      return (!data.keys().hasAny(['termsVersion'])
+          || (data.termsVersion is string
+            && data.termsVersion.size() > 0
+            && data.termsVersion.size() <= 64))
+        && (!data.keys().hasAny(['privacyVersion'])
+          || (data.privacyVersion is string
+            && data.privacyVersion.size() > 0
+            && data.privacyVersion.size() <= 64))
+        && (!data.keys().hasAny(['communityPolicyVersion'])
+          || (data.communityPolicyVersion is string
+            && data.communityPolicyVersion.size() > 0
+            && data.communityPolicyVersion.size() <= 64))
+        && (!data.keys().hasAny(['policyAcceptedAt'])
+          || data.policyAcceptedAt is timestamp);
+    }
+
     function room(roomId) {
       return get(/databases/$(database)/documents/rooms/$(roomId));
     }
@@ -196,6 +213,10 @@ service cloud.firestore {
           'morningBriefingMinuteOfDay',
           'calendarTimezone',
           'holidayCountryCode',
+          'termsVersion',
+          'privacyVersion',
+          'communityPolicyVersion',
+          'policyAcceptedAt',
           'createdAt',
           'updatedAt'
         ])
@@ -203,7 +224,8 @@ service cloud.firestore {
         && request.resource.data.handle is string
         && validProfileHandle(request.resource.data.handle)
         && request.resource.data.defaultSendMode in ['confirm', 'instant']
-        && validCalendarSettings(request.resource.data);
+        && validCalendarSettings(request.resource.data)
+        && validPolicyConsent(request.resource.data);
       allow delete: if false;
 
       match /fcmTokens/{tokenId} {
@@ -280,6 +302,22 @@ service cloud.firestore {
     }
 
     match /reports/{reportId} {
+      allow read, write: if false;
+    }
+
+    match /pluginPartners/{partnerId} {
+      allow read, write: if false;
+
+      match /apiKeys/{keyId} {
+        allow read, write: if false;
+      }
+    }
+
+    match /pluginAudio/{audioId} {
+      allow read, write: if false;
+    }
+
+    match /pluginUsageDaily/{usageId} {
       allow read, write: if false;
     }
 

@@ -25,6 +25,11 @@
 - Default room audio retention is 1 day.
 - Room managers can choose 1 day, 7 days, or custom 1-30 days.
 - `expireVoiceAudio` runs hourly and deletes expired audio while preserving transcripts.
+- Run `npm run verify:audio-retention` from `functions/` for emulator
+  verification. For production probe verification, run
+  `VERIFY_AUDIO_RETENTION_PROD=1 npm run verify:audio-retention:prod`; the
+  probe uses `retention_probe_*` test documents/files and deletes them after the
+  transcript-preservation checks pass.
 - Storage rules do not impose a fixed audio upload size cap.
 - Track `usageDaily`, `audioRetentionStatus`, and `sttCacheHit` before widening beta access.
 
